@@ -38,22 +38,19 @@
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
             </svg>
           </button>
-          <!-- 导入/导出 -->
-          <button class="btn btn-secondary btn-sm" @click="triggerImportConfig">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            <span class="btn-text">导入</span>
-          </button>
+          <!-- 导出方案图:把结果存成图片发群里,是这个工具最常用的一步,
+               放顶部比埋在结果区里好找。没有方案时禁用。
+               (原先这里的「导入/导出 JSON」用不上 —— 有房间同步了。) -->
           <button
             class="btn btn-secondary btn-sm"
-            :disabled="people.length === 0"
-            @click="exportConfig"
+            :disabled="!planResult || exporting"
+            @click="exportAllCards"
+            title="把传火方案存成图片"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
             </svg>
-            <span class="btn-text">导出</span>
+            <span class="btn-text">{{ exporting ? '生成中…' : '导出方案图' }}</span>
           </button>
         </div>
       </header>
@@ -89,7 +86,7 @@
           </div>
           <div class="room-actions">
             <button class="btn btn-secondary btn-sm" @click="copyRoomLink">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
               </svg>
               复制链接
@@ -196,7 +193,7 @@
                   @click="resetAll"
                 >重置</button>
                 <button class="btn btn-primary btn-sm" @click="addPerson">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                   </svg>
                   添加
@@ -206,13 +203,13 @@
 
             <!-- 空状态 -->
             <div v-if="people.length === 0" class="empty-state">
-              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="empty-icon">
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="empty-icon">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
               </svg>
               <p class="empty-text">还没有添加人物</p>
               <p class="empty-sub">添加拼团成员后，下方将生成传火方案</p>
               <button class="btn btn-primary" @click="addPerson">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
                 添加第一个人
@@ -227,13 +224,7 @@
               style="display: none"
               @change="handleAvatarFileSelected"
             />
-            <input
-              ref="fileInputRef"
-              type="file"
-              accept="application/json,.json"
-              style="display: none"
-              @change="handleImportConfig"
-            />
+
 
             <!-- 人物列表 -->
             <TransitionGroup name="list" tag="div" class="person-list">
@@ -286,7 +277,7 @@
                     title="删除"
                     @click.stop="removePerson(index)"
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                     </svg>
                   </button>
@@ -321,7 +312,7 @@
                   <!-- 没传图时显示昵称首字:链条/卡片里认人靠的是名字,一个
                        灰色加号在十几个成员里完全没有辨识度。 -->
                   <span v-if="!person.avatar" class="avatar-initial">{{ initialOf(person.name) }}</span>
-                  <svg v-if="!person.avatar && !person.name.trim()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <svg v-if="!person.avatar && !person.name.trim()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                   </svg>
                   <button
@@ -330,7 +321,7 @@
                     title="清除头像"
                     @click.stop="clearAvatar(person)"
                   >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                     </svg>
                   </button>
@@ -427,7 +418,7 @@
                         :aria-pressed="isFriendPair(person.id, prev.id)"
                       >
                         <span class="fp-chip-box">
-                          <svg v-if="isFriendPair(person.id, prev.id)" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                          <svg v-if="isFriendPair(person.id, prev.id)" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="20 6 9 17 4 12"/>
                           </svg>
                         </span>
@@ -450,7 +441,7 @@
                       :disabled="!isFilled(person)"
                       @click="confirmPerson(person)"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="20 6 9 17 4 12"/>
                       </svg>
                       确认
@@ -469,7 +460,7 @@
 
                 <!-- 删除按钮 -->
                 <button class="person-delete" @click="removePerson(index)" aria-label="删除">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
                 </button>
@@ -489,7 +480,7 @@
               </svg>
               <span class="alert-text">{{ errorMsg }}</span>
               <button class="alert-close" @click="errorMsg = ''">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>
               </button>
@@ -504,7 +495,7 @@
               </svg>
               <span class="alert-text">{{ importToast }}</span>
               <button class="alert-close" @click="importToast = ''">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>
               </button>
@@ -518,7 +509,7 @@
           <!-- 空态:右列在生成前是空白的,大屏上整页只有左列一条,像"只占半个屏幕"。
                这里给一块与左栏等宽的占位,说明右侧会出现什么、怎么开始。 -->
           <div v-if="!planResult || !planResult.success" class="result-placeholder">
-            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
               <path d="M8 21h8"/>
               <path d="M12 17v4"/>
@@ -697,17 +688,29 @@
                   </div>
                 </section>
 
-                <!-- 好友提醒 -->
-                <div
-                  v-if="planResult.friendWarnings && planResult.friendWarnings.length > 0"
-                  key="friend-warn"
-                  class="alert alert-warning"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="alert-icon flex-shrink">
+                <!-- 确定方案前的待办
+                     好友**不是**硬约束:不勾也能出方案(算法只把它当排序偏好)。
+                     所以这里不是报错,而是「动手前先加这几对好友」的清单。
+                     全部已勾则显示一个已就绪的绿条,让人知道不用额外做什么。 -->
+                <div v-if="planResult.friendWarnings.length === 0" key="friend-ok" class="todo-box ok">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                  </svg>
+                  <div class="todo-detail">
+                    <span class="todo-title">方案已就绪</span>
+                    <span class="todo-sub">所有赠送双方都已是好友，可以直接按下面的转账执行</span>
+                  </div>
+                </div>
+
+                <div v-else key="friend-warn" class="todo-box warn">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>
                   </svg>
-                  <div class="alert-detail">
-                    <span class="alert-text">以下人员需先加好友才能赠送副券</span>
+                  <div class="todo-detail">
+                    <span class="todo-title">
+                      确定方案前，还有 {{ planResult.friendWarnings.length }} 对需要先加好友
+                    </span>
+                    <span class="todo-sub">副券只能送给好友；加完后即可按下面的转账执行</span>
                     <div class="alert-tags">
                       <span v-for="(w, idx) in planResult.friendWarnings" :key="idx" class="alert-tag">
                         {{ w.from }} &harr; {{ w.to }}
@@ -876,7 +879,6 @@ const importToast = ref('')
 const exporting = ref(false)
 const computing = ref(false)
 const exportContainer = ref(null)
-const fileInputRef = ref(null)
 const avatarInputRef = ref(null)
 let avatarTargetId = null
 
@@ -1380,69 +1382,6 @@ async function fileToCompressedAvatar(file, maxSize = 128) {
 }
 
 // ===== 导入/导出配置 =====
-function exportConfig() {
-  if (people.length === 0) return
-  const config = {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    elfName1: elfName1.value,
-    elfName2: elfName2.value,
-    maxGaps: maxGaps.value,
-    people: people.map((p) => ({
-      id: p.id,
-      name: p.name,
-      userId: p.userId || '',
-      avatar: p.avatar || '',
-      needElf: p.needElf,
-      // tier 必须导出:档次决定每人能送几张副券,丢了它整棵树的形状就变了。
-      tier: p.tier || 'normal',
-      isHead: !!p.isHead,
-    })),
-    friendships: Array.from(friendships.keys()).map((k) => k.split('-').map(Number)),
-  }
-  try {
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
-    link.download = `传火配置_${stamp}.json`
-    link.href = url
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-    showImportToast(`已导出 ${people.length} 人配置`)
-  } catch (e) {
-    errorMsg.value = '导出配置失败：' + (e?.message || e)
-  }
-}
-
-function triggerImportConfig() {
-  if (fileInputRef.value) fileInputRef.value.click()
-}
-
-function handleImportConfig(event) {
-  const file = event.target.files && event.target.files[0]
-  if (!file) return
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    try {
-      const text = String(e.target.result || '')
-      const config = JSON.parse(text)
-      const summary = applyConfig(config)
-      errorMsg.value = ''
-      showImportToast(`已导入 ${summary.peopleCount} 人、${summary.friendCount} 对好友关系`)
-    } catch (err) {
-      errorMsg.value = '导入失败：' + (err?.message || err)
-    }
-  }
-  reader.onerror = () => {
-    errorMsg.value = '导入失败：无法读取文件'
-  }
-  reader.readAsText(file, 'utf-8')
-  event.target.value = ''
-}
-
 // applyConfig 用一份配置覆盖本地。
 //
 // opts.preserveEditing:房间同步时传 true。含义是**不打断正在编辑的人** ——
@@ -2241,6 +2180,7 @@ body {
    会和上面的精灵/档次按钮视觉上混在一起 */
 .person-field.confirm-field {
   grid-column: 1 / -1;
+  min-width: 0;
   display: flex;
   justify-content: flex-end;
   margin-top: 2px;
@@ -2248,6 +2188,17 @@ body {
 
 .person-confirm {
   min-width: 84px;
+}
+
+/* 确认按钮在窄屏占满整行更好点(它是这张卡的主操作) */
+@media (max-width: 480px) {
+  .person-field.confirm-field {
+    justify-content: stretch;
+  }
+  .person-confirm {
+    flex: 1;
+    width: 100%;
+  }
 }
 
 /* ===== 折叠摘要行 =====
@@ -2454,6 +2405,64 @@ body {
   font-weight: 700;
 }
 
+/* ===== 确定方案前的待办 =====
+   好友不是硬约束,所以这不是「错误」,而是动手前的确认清单。
+   绿条表示无需额外操作 —— 明确告诉用户"可以执行了",比只在不通过时出现更有用。 */
+.todo-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+
+.todo-box svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.todo-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.todo-title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.todo-sub {
+  font-size: 12px;
+  opacity: 0.85;
+  line-height: 1.5;
+}
+
+.todo-box.warn {
+  background: var(--orange-bg);
+  border-color: var(--orange-border);
+  color: var(--orange);
+}
+
+.todo-box.ok {
+  background: var(--green-bg);
+  border-color: var(--green-border);
+  color: var(--green);
+}
+
+.todo-box .alert-tags {
+  margin-top: 6px;
+}
+
+.todo-box .alert-tag {
+  background: var(--surface-solid);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
 /* ===== 房间条 ===== */
 .room-bar {
   display: flex;
@@ -2620,6 +2629,28 @@ body {
   .room-actions { width: 100%; }
   .room-code-input { flex: 1; width: auto; min-width: 0; }
   .room-code { overflow-x: auto; }
+}
+
+/* 精灵/档次按钮的微交互:选中态给一点"按下去了"的手感。
+   只动 transform 与 box-shadow,不触发重排。 */
+.elf-radio-btn {
+  transition: transform 0.12s var(--ease-out), background 0.18s var(--ease-out),
+    border-color 0.18s var(--ease-out), color 0.18s var(--ease-out);
+}
+
+.elf-radio-btn:not(.active):hover {
+  transform: translateY(-1px);
+}
+
+.elf-radio-btn.active {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
+}
+
+/* 禁用态说清楚原因(车头必须豪华),不只是变灰 */
+.tier-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  text-decoration: line-through;
 }
 
 /* 档次与规则表(替换原先的全局档次选择器) */
@@ -2822,11 +2853,22 @@ body {
 }
 
 @media (max-width: 480px) {
+  /* 窄屏整行堆叠。**同时**要把 .person-fields 的宽度放开:
+     它在 .person-row 里是 flex:1,而 flex 子项默认 min-width:auto 会被
+     头像挤到只剩 187px;单列网格下 1/-1 指向同一列,于是好友与确认这两个
+     独占字段被压进一条窄竖条(界面扭曲)。加 min-width:0 + flex-basis:100%
+     让它占满整行。 */
+  .person-row {
+    flex-wrap: wrap;
+  }
   .person-fields {
+    flex: 1 1 100%;
+    min-width: 0;
     grid-template-columns: 1fr;
   }
-  .name-field, .id-field, .elf-field {
+  .person-field {
     grid-column: 1 / -1;
+    min-width: 0;
   }
   .toggle-field {
     align-items: flex-start;
@@ -3606,18 +3648,23 @@ body {
   transition: all 0.4s var(--spring);
 }
 
+/* 纵向入场:卡片是竖着堆叠的,从侧面滑进来与阅读方向不一致,
+   且宽度变化时会挤到旁边的删除按钮。改成从下方淡入 + 轻微上浮。 */
 .list-enter-from {
   opacity: 0;
-  transform: translateX(-20px);
+  transform: translateY(-8px) scale(0.985);
 }
 
 .list-leave-to {
   opacity: 0;
-  transform: translateX(20px);
+  transform: scale(0.97);
 }
 
 .list-leave-active {
   position: absolute;
+  /* 离场时收窄整行,给下方卡片让位(配合 .list-move 的位移) */
+  left: 0;
+  right: 0;
 }
 
 .list-move {
