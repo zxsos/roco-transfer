@@ -148,7 +148,7 @@
                 <!-- 头像 -->
                 <div
                   class="person-avatar"
-                  :class="{ 'has-image': person.avatar }"
+                  :class="{ 'has-image': person.avatar, 'has-initial': !person.avatar && person.name.trim() }"
                   :style="person.avatar ? { backgroundImage: `url(${person.avatar})` } : null"
                   tabindex="0"
                   :title="person.avatar ? '点击更换 / 粘贴图片 / Delete 清除' : '点击上传 / 粘贴图片设置头像'"
@@ -157,7 +157,10 @@
                   @keydown.delete.prevent="clearAvatar(person)"
                   @keydown.backspace.prevent="clearAvatar(person)"
                 >
-                  <svg v-if="!person.avatar" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <!-- 没传图时显示昵称首字:链条/卡片里认人靠的是名字,一个
+                       灰色加号在十几个成员里完全没有辨识度。 -->
+                  <span v-if="!person.avatar" class="avatar-initial">{{ initialOf(person.name) }}</span>
+                  <svg v-if="!person.avatar && !person.name.trim()" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                   </svg>
                   <button
@@ -417,7 +420,7 @@
                       :class="{ 'has-image': planResult.collectBill.head.avatar }"
                       :style="planResult.collectBill.head.avatar ? { backgroundImage: `url(${planResult.collectBill.head.avatar})` } : null"
                     >
-                      <span v-if="!planResult.collectBill.head.avatar">{{ (planResult.collectBill.head.name || '?').charAt(0) }}</span>
+                      <span v-if="!planResult.collectBill.head.avatar">{{ initialOf(planResult.collectBill.head.name) || '?' }}</span>
                     </div>
                     <div class="wx-collect-initiator-text">
                       <div class="wx-collect-initiator-title">{{ planResult.collectBill.head.name }}发起的群收款</div>
@@ -450,7 +453,7 @@
                         :class="{ 'has-image': it.person.avatar }"
                         :style="it.person.avatar ? { backgroundImage: `url(${it.person.avatar})` } : null"
                       >
-                        <span v-if="!it.person.avatar">{{ (it.person.name || '?').charAt(0) }}</span>
+                        <span v-if="!it.person.avatar">{{ initialOf(it.person.name) || '?' }}</span>
                       </div>
                       <span class="wx-collect-member-name">{{ it.person.name }}</span>
                       <span class="wx-collect-item-amount">待支付 ¥{{ it.amount.toFixed(2) }}</span>
@@ -474,7 +477,7 @@
                           :class="[idx === 0 ? 'head' : idx === planResult.chainWithElf.length - 1 ? 'tail' : 'mid', { 'has-image': item.person.avatar }]"
                           :style="item.person.avatar ? { backgroundImage: `url(${item.person.avatar})` } : null"
                         >
-                          <span v-if="!item.person.avatar">{{ (item.person.name || '?').charAt(0) }}</span>
+                          <span v-if="!item.person.avatar">{{ initialOf(item.person.name) || '?' }}</span>
                         </div>
                         <div class="chain-name">{{ item.person.name }}</div>
                         <div v-if="item.person.userId" class="chain-user-id">#{{ item.person.userId }}</div>
@@ -525,7 +528,7 @@
                         :class="[card.role === '源头' ? 'head' : card.role === '车尾' ? 'tail' : 'mid', { 'has-image': card.person.avatar }]"
                         :style="card.person.avatar ? { backgroundImage: `url(${card.person.avatar})` } : null"
                       >
-                        <span v-if="!card.person.avatar">{{ (card.person.name || '?').charAt(0) }}</span>
+                        <span v-if="!card.person.avatar">{{ initialOf(card.person.name) || '?' }}</span>
                       </div>
                       <div>
                         <div class="result-name">
@@ -788,6 +791,17 @@ function buildFriendMatrix() {
     matrix.push([idA, idB])
   }
   return matrix
+}
+
+// initialOf 取昵称首字,供未上传头像时占位。
+//
+// 用 Array.from 而非 [0]:后者按 UTF-16 码元取,遇到 emoji 或超出 BMP 的生僻字
+// (如「𠮷」)会取到半个字符、渲染成乱码。Intl.Segmenter 更准,但兼容性稍差,
+// 这里 Array.from 已足够覆盖人名场景。
+// 空昵称返回空串 —— 由调用方回退到加号图标。
+function initialOf(name) {
+  const s = (name || '').trim()
+  return s ? Array.from(s)[0] : ''
 }
 
 // scrollTop 移动端底部操作条的「回到顶部」。
@@ -1695,6 +1709,24 @@ body {
 .person-avatar.has-image {
   border-style: solid;
   border-color: var(--border);
+}
+
+/* 首字占位:没传头像时顶替加号图标。
+   有名字时改成实线边框 —— 虚线是"请上传"的语义,而首字已经是有效内容了。 */
+.avatar-initial {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+  line-height: 1;
+}
+
+/* 用 class 而非 :has() 选择器控制:微信内置浏览器等旧内核不支持 :has(),
+   在那里会静默失效、边框保持虚线(不影响功能,但样式不对)。 */
+.person-avatar.has-initial {
+  border-style: solid;
+  border-color: var(--border-strong);
+  background: var(--fill);
 }
 
 .avatar-clear {
