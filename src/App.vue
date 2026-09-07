@@ -236,8 +236,11 @@
               >
                 <!-- ===== 折叠态:一行摘要 =====
                      填完后折叠,10 人时列表仍可扫视。整行可点展开编辑。 -->
+                <!-- 用 template 包住折叠态的两个元素(摘要 + 删除确认条),
+                     这样 v-else 能正确配对。此前确认条直接插在 v-if 与 v-else 之间,
+                     破坏了分支 —— 折叠时展开态内容仍被渲染,卡片暴涨成一条。 -->
+                <template v-if="person.collapsed">
                 <div
-                  v-if="person.collapsed"
                   class="person-summary"
                   role="button"
                   tabindex="0"
@@ -286,14 +289,15 @@
                   </svg>
                 </div>
 
-                <!-- 折叠态的删除确认条 -->
+                <!-- 折叠态的删除确认条(在折叠分支内,独占一行) -->
                 <div v-if="pendingDeleteIndex === index" class="person-confirm-del wide">
-                  <span>删除「{{ person.name }}」？他的好友关系也会一并移除</span>
+                  <span>删除「{{ person.name }}」？</span>
                   <div class="person-confirm-actions">
                     <button class="btn btn-secondary btn-sm" @click="cancelDeletePerson">取消</button>
                     <button class="btn btn-danger btn-sm" @click="confirmDeletePerson">删除</button>
                   </div>
                 </div>
+                </template>
 
                 <!-- ===== 展开态 ===== -->
                 <template v-else>
