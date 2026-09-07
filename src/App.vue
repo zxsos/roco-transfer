@@ -140,11 +140,18 @@
             <div class="elf-name-row">
               <div class="elf-name-field">
                 <label class="field-label">精灵1</label>
-                <input v-model="elfName1" placeholder="新月鹭" class="input" />
+                <div class="elf-input-wrap">
+                  <input v-model="elfName1" placeholder="新月鹭" class="input" />
+                  <!-- 介绍图:缩略图 + 点开看大图(见 ElfFigure) -->
+                  <ElfFigure :src="ELF_IMG[0]" :name="elfName1 || '精灵1'" :on-open="openFigure" />
+                </div>
               </div>
               <div class="elf-name-field">
                 <label class="field-label">精灵2</label>
-                <input v-model="elfName2" placeholder="热团团" class="input" />
+                <div class="elf-input-wrap">
+                  <input v-model="elfName2" placeholder="热团团" class="input" />
+                  <ElfFigure :src="ELF_IMG[1]" :name="elfName2 || '精灵2'" :on-open="openFigure" />
+                </div>
               </div>
             </div>
 
@@ -840,6 +847,9 @@
 
     </div>
   </div>
+
+  <!-- 精灵介绍图的大图预览:挂在根层,不受卡片 overflow 裁剪 -->
+  <FigureViewer :fig="figure" @close="figure = null" />
 </template>
 
 <script setup>
@@ -847,6 +857,17 @@ import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { generatePlan, PRICE } from './utils/calculator.js'
 import html2canvas from 'html2canvas'
 import * as room from './room.js'
+import ElfFigure from './components/ElfFigure.vue'
+import FigureViewer from './components/FigureViewer.vue'
+
+// 两个精灵的介绍图(外链,长期有效)。
+// 用外链而非打包进仓库:原图是 4K(3840×2160)约 388KB/张,两张就快 800KB,
+// 打进产物会让首屏白白多下载这些字节 —— 而它们只在用户主动点开时才需要。
+// 页面上是 34px 缩略图,点开才加载大图。
+const ELF_IMG = [
+  'https://zxsos.pages.dev/file/1788773722701_axy6Q65-at96Z13T3cS2yo-1o0.webp', // 精灵1
+  'https://zxsos.pages.dev/file/1788773713686_axy6Q65-3hrnZ13T3cS2yo-1o0.webp', // 精灵2(热团团)
+]
 
 // ===== 状态 =====
 const tier = ref('normal')
@@ -885,6 +906,12 @@ const computing = ref(false)
 const exportContainer = ref(null)
 const avatarInputRef = ref(null)
 let avatarTargetId = null
+
+// ===== 精灵介绍图大图预览 =====
+const figure = ref(null) // { src, name } | null
+function openFigure(f) {
+  figure.value = f
+}
 
 // ===== 房间 =====
 const roomInput = ref('')
@@ -2032,6 +2059,18 @@ body {
 .elf-name-row {
   display: flex;
   gap: 12px;
+}
+
+/* 输入框与介绍图缩略图并排:输入框吃剩余宽度,缩略图固定 34px 不参与伸缩 */
+.elf-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.elf-input-wrap .input {
+  flex: 1;
+  min-width: 0;
 }
 
 .elf-name-field {
