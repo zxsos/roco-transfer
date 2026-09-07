@@ -267,8 +267,7 @@
                       v-model="person.name"
                       placeholder="输入姓名"
                       class="input"
-                      @blur="onNameBlur(person)"
-                      @keydown.enter.prevent="onNameBlur(person)"
+                      @keydown.enter.prevent="confirmPerson(person)"
                     />
                   </div>
                   <div class="person-field id-field">
@@ -316,8 +315,12 @@
                     </div>
                   </div>
                   <!-- 车头:自购源头 + 群收款收款人,必须豪华(普通版送不出豪华副券,
-                       树会长不开)。设为车头时自动切豪华,故普通按钮在车头态禁用。 -->
-                  <div class="person-field toggle-field">
+                       树会长不开)。设为车头时自动切豪华,故普通按钮在车头态禁用。
+
+                       车头已定时,**其余成员不再显示这个开关** —— 一群人里只能
+                       有一个车头,留着开关只会让人反复去点、然后互相顶掉。
+                       车头本人保留开关用于取消。 -->
+                  <div v-if="showHeadToggle(person)" class="person-field toggle-field">
                     <label class="field-label">车头</label>
                     <button
                       class="toggle"
@@ -358,6 +361,22 @@
                   <div v-else class="person-field friend-field">
                     <label class="field-label">好友</label>
                     <p class="friend-hint">第一个人无需选择，后续成员勾选与谁互为好友</p>
+                  </div>
+
+                  <!-- 确认:填完点它才折叠并置后。
+                       早先是姓名框失焦自动折叠,但那样在只填了姓名、还没选精灵
+                       和档次时也会被收起来 —— 点「确认」是明确的「我填完了」。 -->
+                  <div class="person-field confirm-field">
+                    <button
+                      class="btn btn-primary btn-sm person-confirm"
+                      :disabled="!isFilled(person)"
+                      @click="confirmPerson(person)"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                      确认
+                    </button>
                   </div>
                 </div>
 
@@ -867,7 +886,7 @@ function addPerson() {
   // tier 是**每人独立**的档次(普通/豪华)。旧版是全局一个档次,但豪华版能送
   // 1 豪华 + 1 普通副券、普通版只能送 1 张普通 —— 这个差异直接决定树怎么长,
   // 所以必须落到每个人身上。
-  // collapsed:填完后折叠成摘要行(见 onNameBlur)。
+  // collapsed:点「确认」后折叠成摘要行(见 confirmPerson)。
   people.push({ id: nextId++, name: '', userId: '', avatar: '', needElf: 'elf1', tier: 'normal', isHead: false, collapsed: false })
 
   // 新卡片落在列表末尾(**不能**改成插到顶部):好友勾选只列「前面已添加的人」,
@@ -889,15 +908,15 @@ function isFilled(p) {
   return !!(p && p.name && p.name.trim())
 }
 
-// onNameBlur 姓名框失焦时才折叠并置后。
+// confirmPerson 点「确认」后折叠并置后。
 //
-// **刻意不在 input 事件里做**:那样输入第一个字就会触发重排,列表会在打字过程中
-// 跳动(光标还在框里,卡片已经跑到末尾了)。
+// 早先是姓名框失焦自动折叠,但那样在只填了姓名、还没选精灵和档次时也会被收起来
+// —— 失焦是「离开这个输入框」,不是「我填完了」。改成显式确认。
 //
 // 置后安全性:好友对按 id 存储,chip 取「当前顺序中排在前面的人」。对任意一对
 // (X,Y),数组中必有一方在前,所以无论怎么重排,每对好友都恰好显示一次 ——
 // 不会丢,也不会重复显示。
-function onNameBlur(person) {
+function confirmPerson(person) {
   if (!isFilled(person)) return
   person.collapsed = true
   const i = people.indexOf(person)
@@ -909,6 +928,13 @@ function onNameBlur(person) {
 
 function toggleCollapse(person) {
   person.collapsed = !person.collapsed
+}
+
+// showHeadToggle 车头开关是否显示:还没人当车头时人人可设;已定时只有车头本人
+// 保留开关(用来取消),其余人不再显示 —— 避免多人反复互顶。
+function showHeadToggle(person) {
+  const hasHead = people.some((p) => p.isHead)
+  return !hasHead || !!person.isHead
 }
 
 // ===== 自动录入 users 目录角色 =====
@@ -925,7 +951,9 @@ function loadUsersFromDir() {
     const name = base.slice(0, dash).trim()
     const userId = base.slice(dash + 1, dot).trim()
     if (!name) continue
-    loaded.push({ id: nextId++, name, userId, avatar: url, needElf: 'any', tier: 'normal', isHead: false, collapsed: false })
+    // 预置成员(users/ 目录)姓名/头像已齐,默认折叠;精灵与档次仍需补选,
+    // 点摘要行即可展开。手动添加的新成员则保持展开待填。
+    loaded.push({ id: nextId++, name, userId, avatar: url, needElf: 'any', tier: 'normal', isHead: false, collapsed: true })
   }
   loaded.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   loaded.forEach((p) => people.push(p))
@@ -1959,6 +1987,19 @@ body {
 /* 好友勾选独占整行:人数一多 chip 会换行,挤在半列里没法点 */
 .person-field.friend-field {
   grid-column: 1 / -1;
+}
+
+/* 确认按钮独占整行并右对齐:它是这张卡片的收尾动作,放在字段流里
+   会和上面的精灵/档次按钮视觉上混在一起 */
+.person-field.confirm-field {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+.person-confirm {
+  min-width: 84px;
 }
 
 /* ===== 折叠摘要行 =====
