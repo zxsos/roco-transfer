@@ -57,27 +57,26 @@
         <!-- ===== LEFT COLUMN: CONFIG ===== -->
         <div class="config-column">
 
-          <!-- 档次选择 -->
+          <!-- 档次与规则说明。档次已改为**每人独立**(在下方每个人表单里选),
+               这里只保留价格表与赠送规则 —— 全局档次在新算法下没有意义。 -->
           <section class="card config-section">
-            <h2 class="section-title">档次选择</h2>
-            <div class="segment-control">
-              <button
-                class="segment-btn"
-                :class="{ active: tier === 'normal' }"
-                @click="tier = 'normal'"
-              >
-                <span class="segment-text">普通版</span>
-                <span class="segment-price">{{ PRICE.normal.pass }}/{{ PRICE.normal.coupon }}元</span>
-              </button>
-              <button
-                class="segment-btn"
-                :class="{ active: tier === 'premium' }"
-                @click="tier = 'premium'"
-              >
-                <span class="segment-text">豪华版</span>
-                <span class="segment-price">{{ PRICE.premium.pass }}/{{ PRICE.premium.coupon }}元</span>
-              </button>
+            <h2 class="section-title">档次与规则</h2>
+            <div class="tier-table">
+              <div class="tier-row">
+                <span class="tier-name">普通版</span>
+                <span class="tier-price">{{ PRICE.normal.pass }} 元</span>
+                <span class="tier-grant">可送 1 张普通副券（{{ PRICE.normal.coupon }} 元）</span>
+              </div>
+              <div class="tier-row">
+                <span class="tier-name">豪华版</span>
+                <span class="tier-price">{{ PRICE.premium.pass }} 元</span>
+                <span class="tier-grant">可送 1 豪华 + 1 普通副券（{{ PRICE.premium.coupon }}/{{ PRICE.normal.coupon }} 元）</span>
+              </div>
             </div>
+            <p class="section-hint">
+              副券必须是**另一种精灵**；想要豪华的人只能收豪华副券，普通同理。
+              档次在下方每个人表单里单独选择。
+            </p>
             <div class="elf-name-row">
               <div class="elf-name-field">
                 <label class="field-label">精灵1</label>
@@ -203,6 +202,24 @@
                         :class="{ active: person.needElf === 'any' }"
                         @click="person.needElf = 'any'"
                       >都行</button>
+                    </div>
+                  </div>
+
+                  <!-- 档次:每人独立。豪华版能送 1 豪华 + 1 普通副券,普通版只送 1 张普通,
+                       这个差异决定树的形状,不能像旧版那样全局统一。 -->
+                  <div class="person-field tier-field">
+                    <label class="field-label">档次</label>
+                    <div class="elf-radio-group tier-radio-group">
+                      <button
+                        class="elf-radio-btn tier-btn"
+                        :class="{ active: person.tier === 'normal' }"
+                        @click="person.tier = 'normal'"
+                      >普通 68</button>
+                      <button
+                        class="elf-radio-btn tier-btn"
+                        :class="{ active: (person.tier || 'normal') === 'premium' }"
+                        @click="person.tier = 'premium'"
+                      >豪华 128</button>
                     </div>
                   </div>
                   <div class="person-field toggle-field">
@@ -358,7 +375,8 @@
               <div ref="exportContainer" key="export-container" class="export-container">
                 <div class="export-header">
                   <div class="export-title">洛克王国通行证拼团方案</div>
-                  <div class="export-tier-badge">{{ tier === 'normal' ? '普通版' : '豪华版' }}</div>
+                  <!-- 档次已是每人独立,徽章改为展示"混合"或人数统计 -->
+                  <div class="export-tier-badge">{{ tierSummary }}</div>
                 </div>
 
                 <!-- 费用总览 -->
@@ -439,34 +457,71 @@
                   </ul>
                 </section>
 
-                <!-- 传火链条 -->
+                <!-- 传火结构:豪华版能送 2 张,所以是**树**不是链。
+                     按层分组展示:第 0 层自购,其余各层由上一层赠送激活。 -->
                 <section key="chain" class="card chain-section">
                   <h2 class="section-title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="section-title-icon">
                       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                     </svg>
-                    传火链条
+                    传火结构
                   </h2>
-                  <div class="chain-flow">
-                    <template v-for="(item, idx) in planResult.chainWithElf" :key="item.person.id">
-                      <div class="chain-node">
-                        <div
-                          class="chain-avatar"
-                          :class="[idx === 0 ? 'head' : idx === planResult.chainWithElf.length - 1 ? 'tail' : 'mid', { 'has-image': item.person.avatar }]"
-                          :style="item.person.avatar ? { backgroundImage: `url(${item.person.avatar})` } : null"
-                        >
-                          <span v-if="!item.person.avatar">{{ initialOf(item.person.name) || '?' }}</span>
+
+                  <!-- 全员自购:没有任何赠送发生,必须说清楚,否则"省 0 元"像是算错了 -->
+                  <div v-if="planResult.noGift" class="gap-tip gap-tip-warn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    <span>{{ planResult.noGiftHint }}</span>
+                  </div>
+
+                  <!-- 补人建议:凑不齐时(或补人更划算时)给出 -->
+                  <div v-if="planResult.gapSuggestion" class="gap-tip">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                    </svg>
+                    <span>
+                      再拉
+                      <b>{{ planResult.gapSuggestion.count }}</b>
+                      个要「{{ planResult.gapSuggestion.elfName }}」的
+                      {{ planResult.gapSuggestion.tier === 'premium' ? '豪华版' : '普通版' }}
+                      → 人均
+                      <b>{{ planResult.gapSuggestion.avgNow }}</b> 降到
+                      <b>{{ planResult.gapSuggestion.avgAfter }}</b> 元
+                      （每人省 {{ planResult.gapSuggestion.savePerPerson }} 元）
+                    </span>
+                  </div>
+
+                  <div
+                    v-for="(lv, li) in chainLevels"
+                    :key="'lv-' + li"
+                    class="chain-level"
+                  >
+                    <div class="chain-level-tag">{{ li === 0 ? '自购' : '第' + li + '层' }}</div>
+                    <div class="chain-flow">
+                      <template v-for="(item, idx) in lv" :key="item.person.id">
+                        <div class="chain-node">
+                          <div
+                            class="chain-avatar"
+                            :class="[li === 0 ? 'head' : item.children.length ? 'mid' : 'tail', { 'has-image': item.person.avatar }]"
+                            :style="item.person.avatar ? { backgroundImage: `url(${item.person.avatar})` } : null"
+                          >
+                            <span v-if="!item.person.avatar">{{ initialOf(item.person.name) || '?' }}</span>
+                          </div>
+                          <div class="chain-name">{{ item.person.name }}</div>
+                          <div v-if="item.person.userId" class="chain-user-id">#{{ item.person.userId }}</div>
+                          <div class="chain-elf">
+                            {{ getElfName(item.elf) }}
+                            <span class="chain-tier">{{ item.tier === 'premium' ? '豪华' : '普通' }}</span>
+                          </div>
                         </div>
-                        <div class="chain-name">{{ item.person.name }}</div>
-                        <div v-if="item.person.userId" class="chain-user-id">#{{ item.person.userId }}</div>
-                        <div class="chain-elf">{{ getElfName(item.assignedElf) }}</div>
-                      </div>
-                      <div v-if="idx < planResult.chainWithElf.length - 1" class="chain-arrow">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
-                        </svg>
-                      </div>
-                    </template>
+                        <div v-if="idx < lv.length - 1" class="chain-arrow chain-arrow-side">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                          </svg>
+                        </div>
+                      </template>
+                    </div>
                   </div>
                 </section>
 
@@ -513,7 +568,10 @@
                           <span>{{ card.person.name }}</span>
                           <span v-if="card.person.userId" class="result-user-id">#{{ card.person.userId }}</span>
                         </div>
-                        <div class="result-elf-badge">需要「{{ card.myElfName }}」</div>
+                        <div class="result-elf-badge">
+                          {{ card.depth === 0 ? '自购' : '获得' }}「{{ card.myElfName }}」
+                          <span class="result-tier-tag">{{ card.tier === 'premium' ? '豪华' : '普通' }}</span>
+                        </div>
                       </div>
                     </div>
                     <span class="role-badge" :class="card.role">{{ card.role }}</span>
@@ -651,6 +709,30 @@ const themeToggleLabel = computed(() => {
 })
 
 // ===== 计算属性 =====
+// chainLevels 把结果按层分组:第 0 层是自购的源头,其余各层由上一层赠送激活。
+// 豪华版能送 2 张,所以同一层可能有多个人 —— 这正是"树"和"链"的区别,
+// 用一条带箭头的直线画不出来(一个父节点会有两个分支)。
+const chainLevels = computed(() => {
+  const r = planResult.value
+  if (!r || !r.cards) return []
+  const byDepth = new Map()
+  for (const c of r.cards) {
+    const d = c.depth || 0
+    if (!byDepth.has(d)) byDepth.set(d, [])
+    byDepth.get(d).push(c)
+  }
+  return [...byDepth.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v)
+})
+
+// tierSummary 档次已是每人独立,导出图徽章改成显示人数分布。
+const tierSummary = computed(() => {
+  const list = people.filter((p) => p.name.trim())
+  if (!list.length) return '混合'
+  const p = list.filter((x) => (x.tier || 'normal') === 'premium').length
+  const n = list.length - p
+  return p === 0 ? `全普通 ${n} 人` : n === 0 ? `全豪华 ${p} 人` : `豪华 ${p} + 普通 ${n}`
+})
+
 const friendCount = computed(() => {
   let count = 0
   for (let i = 0; i < people.length; i++) {
@@ -683,7 +765,10 @@ function toggleFriendCell(idA, idB) {
 
 // ===== 人物管理 =====
 function addPerson() {
-  people.push({ id: nextId++, name: '', userId: '', avatar: '', needElf: 'elf1', isHead: false, isTail: false })
+  // tier 是**每人独立**的档次(普通/豪华)。旧版是全局一个档次,但豪华版能送
+  // 1 豪华 + 1 普通副券、普通版只能送 1 张普通 —— 这个差异直接决定树怎么长,
+  // 所以必须落到每个人身上。
+  people.push({ id: nextId++, name: '', userId: '', avatar: '', needElf: 'elf1', tier: 'normal', isHead: false, isTail: false })
 }
 
 // ===== 自动录入 users 目录角色 =====
@@ -700,7 +785,7 @@ function loadUsersFromDir() {
     const name = base.slice(0, dash).trim()
     const userId = base.slice(dash + 1, dot).trim()
     if (!name) continue
-    loaded.push({ id: nextId++, name, userId, avatar: url, needElf: 'any', isHead: false, isTail: false })
+    loaded.push({ id: nextId++, name, userId, avatar: url, needElf: 'any', tier: 'normal', isHead: false, isTail: false })
   }
   loaded.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   loaded.forEach((p) => people.push(p))
@@ -749,7 +834,6 @@ function resetAll() {
   people.length = 0
   friendships.clear()
   nextId = 1
-  tier.value = 'normal'
   elfName1.value = '新月鹭'
   elfName2.value = '热团团'
   planResult.value = null
@@ -799,7 +883,7 @@ async function doGenerate() {
   await nextTick()
 
   const result = generatePlan(
-    [...people], tier.value,
+    [...people],
     { elf1: elfName1.value || '新月鹭', elf2: elfName2.value || '热团团' },
     buildFriendMatrix()
   )
@@ -904,7 +988,6 @@ function exportConfig() {
   const config = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    tier: tier.value,
     elfName1: elfName1.value,
     elfName2: elfName2.value,
     people: people.map((p) => ({
@@ -913,6 +996,8 @@ function exportConfig() {
       userId: p.userId || '',
       avatar: p.avatar || '',
       needElf: p.needElf,
+      // tier 必须导出:档次决定每人能送几张副券,丢了它整棵树的形状就变了。
+      tier: p.tier || 'normal',
       isHead: !!p.isHead,
       isTail: !!p.isTail,
     })),
@@ -965,9 +1050,6 @@ function applyConfig(config) {
   if (!config || typeof config !== 'object') {
     throw new Error('配置文件格式无效')
   }
-  if (config.tier === 'normal' || config.tier === 'premium') {
-    tier.value = config.tier
-  }
   if (typeof config.elfName1 === 'string') elfName1.value = config.elfName1
   if (typeof config.elfName2 === 'string') elfName2.value = config.elfName2
 
@@ -990,6 +1072,8 @@ function applyConfig(config) {
         userId: typeof p.userId === 'string' ? p.userId : '',
         avatar,
         needElf,
+        // 兼容老配置(没有 tier 字段):按普通处理
+        tier: p.tier === 'premium' ? 'premium' : 'normal',
         isHead: !!p.isHead,
         isTail: !!p.isTail,
       })
@@ -1738,6 +1822,131 @@ body {
 /* 好友勾选独占整行:人数一多 chip 会换行,挤在半列里没法点 */
 .person-field.friend-field {
   grid-column: 1 / -1;
+}
+
+/* 档次与规则表(替换原先的全局档次选择器) */
+.tier-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tier-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--fill);
+}
+
+.tier-name {
+  flex: none;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 48px;
+}
+
+.tier-price {
+  flex: none;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 52px;
+}
+
+.tier-grant {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* 档次按钮沿用精灵按钮的样式,只是稍窄一点 */
+.tier-radio-group {
+  display: flex;
+  gap: 6px;
+}
+
+.tier-btn {
+  flex: 1;
+}
+
+/* 补人建议 */
+.gap-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--orange-bg);
+  border: 1px solid var(--orange-border);
+  color: var(--orange);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.gap-tip svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.gap-tip b {
+  font-weight: 700;
+}
+
+/* 全员自购用红色警示(补人建议是可选的省钱技巧,这个是"方案没生效") */
+.gap-tip-warn {
+  background: var(--red-bg);
+  border-color: var(--red-border);
+  color: var(--red);
+}
+
+/* 层级:每层一行,层标签在左 */
+.chain-level {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.chain-level + .chain-level {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--separator);
+}
+
+.chain-level-tag {
+  flex: none;
+  width: 44px;
+  padding-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* 同层之间用短横线(不是箭头):同层是并列分支,不存在先后 */
+.chain-arrow-side {
+  color: var(--text-tertiary);
+}
+
+.result-tier-tag {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  background: var(--fill-secondary);
+  color: var(--text-secondary);
+}
+
+.chain-tier {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  background: var(--fill-secondary);
+  color: var(--text-secondary);
 }
 
 .friend-hint {
