@@ -44,6 +44,14 @@ function validatePeople(people) {
   if (headList.length > 1) {
     return { valid: false, error: '只能有一个车头，当前有 ' + headList.length + ' 人被标记为车头' }
   }
+  // 车头必须豪华:它是自购源头且要发起群收款,普通版送不出豪华副券会让树长不开。
+  // UI 侧已强制(普通按钮禁用),这里是防导入的脏数据。
+  if (headList.length === 1 && headList[0].tier !== 'premium') {
+    return {
+      valid: false,
+      error: `车头「${headList[0].name || '未命名'}」必须是豪华版（当前为普通版）`,
+    }
+  }
   return { valid: true, error: null }
 }
 
@@ -252,13 +260,22 @@ function computeCost(people, built) {
 //
 // 根数上限取 3:根越多意味着越多的人要自购正价,实际场景(十来人的群)里
 // 不会比 3 个更多;再放宽也只是在浪费枚举时间。
-function searchBest(people, friendMap, byId) {
+function searchBest(people, friendMap, byId, headId = null) {
   const ids = people.map((p) => p.id)
   let best = null
   const maxRoots = Math.min(3, people.length)
 
   for (let k = 1; k <= maxRoots; k++) {
-    for (const rootIds of combinations(ids, k)) {
+    for (const combo of combinations(ids, k)) {
+      // 指定了车头 ⇒ 它必须是自购源头之一,否则这个根组合直接不成立
+      if (headId != null && !combo.includes(headId)) continue
+
+      // 车头固定在 rootIds[0]:rootIds[0] 决定 buildCollectBill 的收款人
+      // (群收款由车头发起)。用旋转而非跳过,避免把合法组合整个丢掉。
+      // 根集合内部顺序不影响 tryBuild(elves 按 id 建键、槽位与顺序无关)。
+      const rootIds =
+        headId != null ? [headId, ...combo.filter((id) => id !== headId)] : combo
+
       for (const assign of elfAssignments(rootIds, byId)) {
         const built = tryBuild(people, rootIds, assign, friendMap, byId)
         if (!built) continue
@@ -281,7 +298,7 @@ function searchBest(people, friendMap, byId) {
 //
 // 只有"确实比全员自购便宜"的补法才算数:补人后总支出必然上升(多了几个人),
 // 若新方案压根没用上副券,那只是把更多人拉进来一起原价买,毫无意义。
-function tryFill(people, friendMap, byId, maxGaps = 2) {
+function tryFill(people, friendMap, byId, maxGaps = 0, headId = null) {
   let bestFill = null
   for (let g = 1; g <= maxGaps; g++) {
     for (const tier of ['normal', 'premium']) {
@@ -294,13 +311,12 @@ function tryFill(people, friendMap, byId, maxGaps = 2) {
             tier,
             needElf: elf,
             isHead: false,
-            isTail: false,
             _filler: true,
           })
         }
         const all = [...people, ...filler]
         const allById = new Map(all.map((p) => [p.id, p]))
-        const b = searchBest(all, friendMap, allById)
+        const b = searchBest(all, friendMap, allById, headId)
         if (!b) continue
         const soloAll = all.reduce((s, p) => s + (PRICE[p.tier] || PRICE.normal).pass, 0)
         if (b.cost.total >= soloAll) continue
@@ -381,7 +397,9 @@ function buildResultCards(people, best, byId, friendMap) {
 
     return {
       person: p,
-      role: isRoot ? '源头' : children.length ? '中间人' : '车尾',
+      // 「车尾」已随车尾功能一并移除:这里是树的叶子节点,叫「末端」更准。
+      // 旧名与新结构无关(树没有单一末端),留着会让人以为还能指定车尾。
+      role: isRoot ? '源头' : children.length ? '中间人' : '末端',
       elf: myElf,
       myElfName: elfNames[myElf],
       tier: p.tier,
@@ -444,8 +462,14 @@ export function generatePlan(people, names, friendMatrix, opts = {}) {
   const friendMap = buildFriendshipMap(people, friendMatrix)
   const byId = new Map(people.map((p) => [p.id, p]))
 
-  const best = searchBest(people, friendMap, byId)
-  const fill = tryFill(people, friendMap, byId, opts.maxGaps ?? 2)
+  // 车头:由 UI 指定(唯一),算法保证它是自购源头且为群收款收款人。
+  const head = people.find((p) => p.isHead)
+  const headId = head ? head.id : null
+
+  const best = searchBest(people, friendMap, byId, headId)
+  // maxGaps 默认 0:只给确定方案。想要「再拉人能省多少」时由使用者显式放开。
+  const maxGaps = opts.maxGaps ?? 0
+  const fill = maxGaps > 0 ? tryFill(people, friendMap, byId, maxGaps, headId) : null
 
   if (!best) {
     const gap = fill

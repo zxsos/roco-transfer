@@ -24,7 +24,14 @@
             @click="cycleTheme"
             aria-label="切换主题"
           >
-            <svg v-if="resolvedTheme === 'light'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <!-- 三态图标:跟随系统 / 浅色 / 深色。
+                 原先只按 resolvedTheme 二选一,跟随模式下显示的是太阳或月亮 ——
+                 看不出处于跟随态,和它的 title「跟随系统」也对不上。 -->
+            <svg v-if="themeMode === 'system'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/>
+            </svg>
+            <svg v-else-if="themeMode === 'light'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
             </svg>
             <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -87,6 +94,34 @@
                 <input v-model="elfName2" placeholder="热团团" class="input" />
               </div>
             </div>
+
+            <!-- 留空人数:0 = 只给确定方案(默认);拖到 1/2 才额外算
+                 「再拉 N 个要 X 精灵的人进来能省多少」。 -->
+            <div class="gap-field">
+              <div class="gap-field-head">
+                <label class="field-label" for="gap-range">最多留空</label>
+                <span class="gap-value">{{ maxGaps }} 人</span>
+              </div>
+              <input
+                id="gap-range"
+                class="gap-range"
+                type="range"
+                min="0"
+                max="2"
+                step="1"
+                v-model.number="maxGaps"
+              />
+              <div class="gap-ticks" aria-hidden="true">
+                <span :class="{ on: maxGaps === 0 }">0</span>
+                <span :class="{ on: maxGaps === 1 }">1</span>
+                <span :class="{ on: maxGaps === 2 }">2</span>
+              </div>
+              <p class="section-hint">
+                {{ maxGaps === 0
+                  ? '0 = 只给确定的方案，不提示补人'
+                  : `凑不齐或补人更划算时，会提示再拉 ${maxGaps} 个人能省多少` }}
+              </p>
+            </div>
           </section>
 
           <!-- 人物列表 -->
@@ -98,12 +133,19 @@
                 </svg>
                 人物列表
               </h2>
-              <button class="btn btn-primary btn-sm" @click="addPerson">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                添加
-              </button>
+              <div class="section-actions-row">
+                <button
+                  v-if="people.length > 0"
+                  class="btn btn-secondary btn-sm"
+                  @click="resetAll"
+                >重置</button>
+                <button class="btn btn-primary btn-sm" @click="addPerson">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  添加
+                </button>
+              </div>
             </div>
 
             <!-- 空状态 -->
@@ -143,7 +185,50 @@
                 v-for="(person, index) in people"
                 :key="person.id"
                 class="person-row"
+                :class="{ 'is-collapsed': person.collapsed }"
               >
+                <!-- ===== 折叠态:一行摘要 =====
+                     填完后折叠,10 人时列表仍可扫视。整行可点展开编辑。 -->
+                <div
+                  v-if="person.collapsed"
+                  class="person-summary"
+                  role="button"
+                  tabindex="0"
+                  @click="toggleCollapse(person)"
+                  @keydown.enter.prevent="toggleCollapse(person)"
+                  @keydown.space.prevent="toggleCollapse(person)"
+                  aria-label="展开编辑"
+                >
+                  <div
+                    class="summary-avatar"
+                    :class="{ 'has-image': person.avatar, 'has-initial': !person.avatar && person.name.trim() }"
+                    :style="person.avatar ? { backgroundImage: `url(${person.avatar})` } : null"
+                  >
+                    <span v-if="!person.avatar">{{ initialOf(person.name) }}</span>
+                  </div>
+                  <div class="summary-main">
+                    <div class="summary-name">
+                      {{ person.name }}
+                      <span v-if="person.userId" class="summary-id">#{{ person.userId }}</span>
+                      <span v-if="person.isHead" class="summary-badge head">车头</span>
+                    </div>
+                    <div class="summary-tags">
+                      <span class="summary-tag">{{ elfLabel(person.needElf) }}</span>
+                      <span class="summary-tag" :class="{ premium: person.tier === 'premium' }">
+                        {{ person.tier === 'premium' ? '豪华' : '普通' }}
+                      </span>
+                      <span v-if="friendCountOf(person.id) > 0" class="summary-tag friend">
+                        好友 {{ friendCountOf(person.id) }}
+                      </span>
+                    </div>
+                  </div>
+                  <svg class="summary-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
+                </div>
+
+                <!-- ===== 展开态 ===== -->
+                <template v-else>
                 <!-- 头像 -->
                 <div
                   class="person-avatar"
@@ -178,7 +263,13 @@
                 <div class="person-fields">
                   <div class="person-field name-field">
                     <label class="field-label">姓名</label>
-                    <input v-model="person.name" placeholder="输入姓名" class="input" />
+                    <input
+                      v-model="person.name"
+                      placeholder="输入姓名"
+                      class="input"
+                      @blur="onNameBlur(person)"
+                      @keydown.enter.prevent="onNameBlur(person)"
+                    />
                   </div>
                   <div class="person-field id-field">
                     <label class="field-label">ID（选填）</label>
@@ -213,6 +304,8 @@
                       <button
                         class="elf-radio-btn tier-btn"
                         :class="{ active: person.tier === 'normal' }"
+                        :disabled="person.isHead"
+                        :title="person.isHead ? '车头必须是豪华版' : null"
                         @click="person.tier = 'normal'"
                       >普通 68</button>
                       <button
@@ -222,6 +315,8 @@
                       >豪华 128</button>
                     </div>
                   </div>
+                  <!-- 车头:自购源头 + 群收款收款人,必须豪华(普通版送不出豪华副券,
+                       树会长不开)。设为车头时自动切豪华,故普通按钮在车头态禁用。 -->
                   <div class="person-field toggle-field">
                     <label class="field-label">车头</label>
                     <button
@@ -229,17 +324,6 @@
                       :class="{ active: person.isHead }"
                       @click="onHeadToggle(person)"
                       :aria-label="person.isHead ? '取消车头' : '设为车头'"
-                    >
-                      <span class="toggle-knob"></span>
-                    </button>
-                  </div>
-                  <div class="person-field toggle-field">
-                    <label class="field-label">车尾</label>
-                    <button
-                      class="toggle"
-                      :class="{ active: person.isTail }"
-                      @click="onTailToggle(person)"
-                      :aria-label="person.isTail ? '取消车尾' : '设为车尾'"
                     >
                       <span class="toggle-knob"></span>
                     </button>
@@ -283,31 +367,13 @@
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
                 </button>
+                </template>
               </div>
             </TransitionGroup>
           </section>
 
 
-          <!-- 操作栏 -->
-          <div class="action-bar">
-            <button
-              class="btn btn-large btn-primary"
-              :disabled="people.length < 2 || computing"
-              @click="doGenerate"
-            >
-              <template v-if="computing">
-                <span class="spinner"></span>
-                计算中...
-              </template>
-              <template v-else>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                </svg>
-                生成传火方案
-              </template>
-            </button>
-            <button class="btn btn-large btn-ghost" @click="resetAll">重置</button>
-          </div>
+          <!-- 生成/添加统一走底部常驻条;这里只留错误提示,不再重复一套操作按钮。 -->
 
           <!-- 错误提示 -->
           <Transition name="alert">
@@ -551,14 +617,14 @@
                   class="card result-card"
                   :class="{
                     'card-head': card.role === '源头',
-                    'card-tail': card.role === '车尾',
+                    'card-end': card.role === '末端',
                   }"
                 >
                   <div class="result-header">
                     <div class="result-identity">
                       <div
                         class="result-avatar"
-                        :class="[card.role === '源头' ? 'head' : card.role === '车尾' ? 'tail' : 'mid', { 'has-image': card.person.avatar }]"
+                        :class="[card.role === '源头' ? 'head' : card.role === '末端' ? 'end' : 'mid', { 'has-image': card.person.avatar }]"
                         :style="card.person.avatar ? { backgroundImage: `url(${card.person.avatar})` } : null"
                       >
                         <span v-if="!card.person.avatar">{{ initialOf(card.person.name) || '?' }}</span>
@@ -615,12 +681,21 @@
         </div>
       </div>
 
-      <!-- ===== 移动端底部操作条 =====
-           结果区很长(链条 + 每人一张卡片),单列下滚到底后要一路滑回顶部
-           才能改配置重新生成。这里常驻一条操作条,按钮与上方 action-bar
-           共用 doGenerate,行为完全一致(含校验与错误提示)。
-           桌面端双列时左栏已 sticky,不需要 —— 见样式里的 960px 断点。 -->
+      <!-- ===== 底部常驻操作条 =====
+           全尺寸常驻(桌面端也显示):页面内的 action-bar 已删除,这里是唯一入口。
+           结果区很长(树 + 每人一张卡片),滚到底后要一路滑回顶部才能改配置 ——
+           常驻条消除这个往返,并把「添加成员」也放进来(主要操作都在手边)。 -->
       <div class="mobile-bar" :class="{ 'has-result': planResult && planResult.success }">
+        <div class="mobile-bar-inner">
+        <button
+          class="btn btn-large mobile-bar-add"
+          @click="addPerson"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          <span class="mobile-bar-add-text">添加成员</span>
+        </button>
         <button
           class="btn btn-large btn-primary mobile-bar-main"
           :disabled="people.length < 2 || computing"
@@ -647,6 +722,7 @@
             <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
           </svg>
         </button>
+        </div>
       </div>
 
     </div>
@@ -662,6 +738,10 @@ import html2canvas from 'html2canvas'
 const tier = ref('normal')
 const elfName1 = ref('新月鹭')
 const elfName2 = ref('热团团')
+
+// maxGaps 最多留几个空位(0~2)。默认 0:只给确定方案,不提示补人。
+// 使用者想要「再拉人能省多少」时再手动放开 —— 提示是可选信息,不该默认打扰。
+const maxGaps = ref(0)
 
 // 主题: 'system' | 'light' | 'dark'
 const themeMode = ref('system')
@@ -743,6 +823,25 @@ const friendCount = computed(() => {
   return count
 })
 
+// friendCountOf 某人被勾选的好友数(折叠摘要行显示用)。
+// 注意与 friendCount 区分:那是全群总对数,这是单人的。
+function friendCountOf(id) {
+  let n = 0
+  for (const p of people) {
+    if (p.id !== id && isFriendPair(id, p.id)) n++
+  }
+  return n
+}
+
+// elfLabel 需求精灵的显示名。'any' 显示「都行」而不是某个具体精灵 ——
+// 折叠行里写「新月鹭」会让人误以为他指定了精灵。
+function elfLabel(needElf) {
+  if (needElf === 'any') return '都行'
+  if (needElf === 'elf1') return elfName1.value || '精灵1'
+  if (needElf === 'elf2') return elfName2.value || '精灵2'
+  return '未选'
+}
+
 
 // ===== 好友关系 =====
 function getFriendKey(idA, idB) {
@@ -768,7 +867,48 @@ function addPerson() {
   // tier 是**每人独立**的档次(普通/豪华)。旧版是全局一个档次,但豪华版能送
   // 1 豪华 + 1 普通副券、普通版只能送 1 张普通 —— 这个差异直接决定树怎么长,
   // 所以必须落到每个人身上。
-  people.push({ id: nextId++, name: '', userId: '', avatar: '', needElf: 'elf1', tier: 'normal', isHead: false, isTail: false })
+  // collapsed:填完后折叠成摘要行(见 onNameBlur)。
+  people.push({ id: nextId++, name: '', userId: '', avatar: '', needElf: 'elf1', tier: 'normal', isHead: false, collapsed: false })
+
+  // 新卡片落在列表末尾(**不能**改成插到顶部):好友勾选只列「前面已添加的人」,
+  // 插到顶部会让 index=0 的人一个好友都选不到。人多了末尾看不见,所以这里
+  // 主动滚到视野内并聚焦姓名框 —— 点「添加」后不用自己找新卡片在哪。
+  nextTick(() => {
+    const rows = document.querySelectorAll('.person-row')
+    const last = rows[rows.length - 1]
+    if (!last) return
+    const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    last.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' })
+    const input = last.querySelector('input')
+    if (input) input.focus()
+  })
+}
+
+// isFilled 判定「填完了」:姓名非空即算。姓名是唯一必填项(精灵与档次都有默认值)。
+function isFilled(p) {
+  return !!(p && p.name && p.name.trim())
+}
+
+// onNameBlur 姓名框失焦时才折叠并置后。
+//
+// **刻意不在 input 事件里做**:那样输入第一个字就会触发重排,列表会在打字过程中
+// 跳动(光标还在框里,卡片已经跑到末尾了)。
+//
+// 置后安全性:好友对按 id 存储,chip 取「当前顺序中排在前面的人」。对任意一对
+// (X,Y),数组中必有一方在前,所以无论怎么重排,每对好友都恰好显示一次 ——
+// 不会丢,也不会重复显示。
+function onNameBlur(person) {
+  if (!isFilled(person)) return
+  person.collapsed = true
+  const i = people.indexOf(person)
+  if (i >= 0 && i !== people.length - 1) {
+    people.splice(i, 1)
+    people.push(person)
+  }
+}
+
+function toggleCollapse(person) {
+  person.collapsed = !person.collapsed
 }
 
 // ===== 自动录入 users 目录角色 =====
@@ -785,7 +925,7 @@ function loadUsersFromDir() {
     const name = base.slice(0, dash).trim()
     const userId = base.slice(dash + 1, dot).trim()
     if (!name) continue
-    loaded.push({ id: nextId++, name, userId, avatar: url, needElf: 'any', tier: 'normal', isHead: false, isTail: false })
+    loaded.push({ id: nextId++, name, userId, avatar: url, needElf: 'any', tier: 'normal', isHead: false, collapsed: false })
   }
   loaded.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   loaded.forEach((p) => people.push(p))
@@ -810,15 +950,9 @@ function onHeadToggle(person) {
     people.forEach((p) => {
       if (p.id !== person.id) p.isHead = false
     })
-  }
-}
-
-function onTailToggle(person) {
-  person.isTail = !person.isTail
-  if (person.isTail) {
-    people.forEach((p) => {
-      if (p.id !== person.id) p.isTail = false
-    })
+    // 车头必须豪华:直接切换而不是报错 —— 用户点开关的意图很明确,
+    // 让他再手动去改档次是多余的摩擦。
+    person.tier = 'premium'
   }
 }
 
@@ -834,6 +968,7 @@ function resetAll() {
   people.length = 0
   friendships.clear()
   nextId = 1
+  maxGaps.value = 0
   elfName1.value = '新月鹭'
   elfName2.value = '热团团'
   planResult.value = null
@@ -885,7 +1020,8 @@ async function doGenerate() {
   const result = generatePlan(
     [...people],
     { elf1: elfName1.value || '新月鹭', elf2: elfName2.value || '热团团' },
-    buildFriendMatrix()
+    buildFriendMatrix(),
+    { maxGaps: maxGaps.value }
   )
 
   computing.value = false
@@ -990,6 +1126,7 @@ function exportConfig() {
     exportedAt: new Date().toISOString(),
     elfName1: elfName1.value,
     elfName2: elfName2.value,
+    maxGaps: maxGaps.value,
     people: people.map((p) => ({
       id: p.id,
       name: p.name,
@@ -999,7 +1136,6 @@ function exportConfig() {
       // tier 必须导出:档次决定每人能送几张副券,丢了它整棵树的形状就变了。
       tier: p.tier || 'normal',
       isHead: !!p.isHead,
-      isTail: !!p.isTail,
     })),
     friendships: Array.from(friendships.keys()).map((k) => k.split('-').map(Number)),
   }
@@ -1052,6 +1188,9 @@ function applyConfig(config) {
   }
   if (typeof config.elfName1 === 'string') elfName1.value = config.elfName1
   if (typeof config.elfName2 === 'string') elfName2.value = config.elfName2
+  // 老配置没有 maxGaps,缺省按 0(只给确定方案),与默认值一致。
+  const g = Number(config.maxGaps)
+  maxGaps.value = Number.isFinite(g) && g >= 0 && g <= 2 ? Math.round(g) : 0
 
   people.length = 0
   let maxId = 0
@@ -1075,7 +1214,6 @@ function applyConfig(config) {
         // 兼容老配置(没有 tier 字段):按普通处理
         tier: p.tier === 'premium' ? 'premium' : 'normal',
         isHead: !!p.isHead,
-        isTail: !!p.isTail,
       })
     }
   }
@@ -1083,8 +1221,6 @@ function applyConfig(config) {
 
   const headList = people.filter((p) => p.isHead)
   if (headList.length > 1) headList.slice(1).forEach((p) => (p.isHead = false))
-  const tailList = people.filter((p) => p.isTail)
-  if (tailList.length > 1) tailList.slice(1).forEach((p) => (p.isTail = false))
 
   friendships.clear()
   if (Array.isArray(config.friendships)) {
@@ -1315,8 +1451,9 @@ body {
   z-index: 1;
   max-width: 1320px;
   margin: 0 auto;
-  /* 底部留白用 safe-area 兜底:iPhone 的 Home Indicator 会盖住最后一张卡片 */
-  padding: 24px 20px calc(64px + env(safe-area-inset-bottom, 0px));
+  /* 底部留白用 safe-area 兜底:iPhone 的 Home Indicator 会盖住最后一张卡片。
+     96px = 常驻操作条(~68px) + 余量 —— 条在所有尺寸都常驻,故这里也要让位。 */
+  padding: 24px 20px calc(96px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ===== HEADER ===== */
@@ -1824,6 +1961,210 @@ body {
   grid-column: 1 / -1;
 }
 
+/* ===== 折叠摘要行 =====
+   填完后替代表单:一行 56px,10 人时列表仍可扫视。整行可点展开。 */
+.person-row.is-collapsed {
+  padding: 6px 10px;
+}
+
+.person-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 4px 2px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: background 0.18s var(--ease-out);
+}
+
+.person-summary:hover {
+  background: var(--fill);
+}
+
+.person-summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--blue-bg);
+}
+
+.summary-avatar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--fill);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background-size: cover;
+  background-position: center;
+  user-select: none;
+}
+
+.summary-avatar.has-image,
+.summary-avatar.has-initial {
+  background-color: var(--surface-solid);
+}
+
+.summary-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.summary-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-id {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.summary-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.summary-tags {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.summary-tag {
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  background: var(--fill);
+  color: var(--text-secondary);
+}
+
+/* 豪华用金色点出:档次直接决定能不能分叉,值得在摘要里一眼看到 */
+.summary-tag.premium {
+  background: rgba(var(--c-wealth-rgb, 212, 175, 55), 0.14);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.summary-tag.friend {
+  color: var(--green);
+  background: var(--green-bg);
+}
+
+.summary-arrow {
+  flex: none;
+  color: var(--text-tertiary);
+  transition: transform 0.22s var(--ease-out);
+}
+
+/* 人物区标题右侧的按钮组(重置 + 添加) */
+.section-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ===== 留空滑块 ===== */
+.gap-field {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--separator);
+}
+
+.gap-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.gap-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.gap-range {
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* 轨道与滑块:手写以匹配设计 token,原生样式在各浏览器差异太大 */
+.gap-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill-secondary);
+}
+.gap-range::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill-secondary);
+}
+.gap-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface-solid);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s var(--ease-out);
+}
+.gap-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface-solid);
+  box-shadow: var(--shadow-sm);
+}
+.gap-range:active::-webkit-slider-thumb { transform: scale(1.15); }
+.gap-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-soft, var(--blue-bg)); }
+
+.gap-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.gap-ticks .on {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 /* 档次与规则表(替换原先的全局档次选择器) */
 .tier-table {
   display: flex;
@@ -2128,16 +2469,6 @@ body {
 
 /* ===== FRIEND MATRIX ===== */
 /* ===== ACTION BAR ===== */
-.action-bar {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin: 24px 0;
-}
-
-.action-bar .btn-large {
-  flex: 0 1 auto;
-}
 
 /* ===== ALERT ===== */
 .alert {
@@ -2570,7 +2901,7 @@ body {
   border-left: 3px solid var(--red);
 }
 
-.result-card.card-tail {
+.result-card.card-end {
   border-left: 3px solid var(--green);
 }
 
@@ -2601,7 +2932,7 @@ body {
 
 .result-avatar.head { background: linear-gradient(135deg, #FF6B6B, #FF3B30); }
 .result-avatar.mid  { background: linear-gradient(135deg, #5AC8FA, #007AFF); }
-.result-avatar.tail { background: linear-gradient(135deg, #63E6BE, #34C759); }
+.result-avatar.end  { background: linear-gradient(135deg, #63E6BE, #34C759); }
 
 .result-avatar.has-image {
   background-size: cover;
@@ -2646,7 +2977,7 @@ body {
 
 .role-badge.源头   { background: var(--red-bg);    color: var(--red); }
 .role-badge.中间人 { background: var(--blue-bg);   color: var(--blue); }
-.role-badge.车尾   { background: var(--green-bg);  color: var(--green); }
+.role-badge.末端   { background: var(--green-bg);  color: var(--green); }
 
 /* ===== LINE LIST ===== */
 .line-list {
@@ -2931,26 +3262,48 @@ body {
 /* ===== MOBILE ACTION BAR =====
    仅在单列(<960px)出现:桌面左栏已 sticky,不需要。
    固定底部会盖住内容,故同时给 .app-content 补上等高底部留白。 */
+/* 常驻(所有尺寸):页面内 action-bar 已删除,这是唯一入口。
+   通栏 + 内层与内容同宽居中,桌面端看着像一条工具条而非移动端浮层。 */
 .mobile-bar {
-  display: none;
+  display: block;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+}
+
+/* 内层容器:与 .app-content 同宽居中,按钮跟着内容列走 */
+.mobile-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+@media (min-width: 1440px) {
+  .mobile-bar-inner { max-width: min(calc(100vw - 80px), 1600px); }
+}
+@media (min-width: 1800px) {
+  .mobile-bar-inner { max-width: min(calc(100vw - 120px), 1760px); }
+}
+
+.mobile-bar-add {
+  flex: none;
+  margin: 0;
 }
 
 @media (max-width: 959px) {
   .mobile-bar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 50;
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
-    background: var(--surface);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border-top: 1px solid var(--border);
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
   .mobile-bar-main {
