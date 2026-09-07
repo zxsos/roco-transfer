@@ -2,7 +2,22 @@
 
 一个用于计算《洛克王国》通行证「传火」拼团方案的网页工具。自动生成最优传火链条、计算每人应付金额与转账指令，并支持一键导出图片分享。
 
-> 在线体验：<https://zxsos.github.io/roco-transfer/>
+> 在线体验：<https://rocom-pass-the-torch.pages.dev/>
+
+## 房间：多人一起填
+
+把链接发到群里，每个人点开填自己的信息，所有人看到同一份数据：
+
+1. 点「创建房间」，复制生成的链接发到群里
+2. 成员点开链接自动进入同一房间（链接里的 `?r=<房间码>` 生效）
+3. 各自填完点「确认」，数据自动汇总；约 15 秒同步一次
+4. 任何人都可点「生成传火方案」看结果
+
+- 不建房间也能用，此时就是纯本地（与以前一样），不强制联网
+- 头像会随房间同步，群里能看到彼此头像
+- 删除成员需二次确认；删除后别人的旧数据不会把它「复活」
+- 房间码是 16 位随机串，知道码才能读写；数据 72 小时自动过期，也可手动删除房间
+- 头像等数据存在 Cloudflare KV（美国节点），介意的话可以不建房间、纯本地使用
 
 ## 功能特性
 
@@ -59,12 +74,21 @@ npm run preview
 
 ## 部署
 
-仓库已配置 GitHub Actions（`.github/workflows/deploy.yml`），推送到 `main` 分支后自动构建并发布到 GitHub Pages。构建时通过 `BASE_URL` 环境变量注入**仓库名**作为子路径（工作流里取的是 `github.event.repository.name`，改名后无需手改 `vite.config.js`）。
+站点跑在 **Cloudflare Pages**（前端 + Functions 同仓库同部署），地址
+<https://rocom-pass-the-torch.pages.dev/>。
 
-启用步骤：
+```bash
+npm run build
+npx wrangler pages deploy dist --project-name rocom-pass-the-torch
+```
 
-1. 在 GitHub 仓库 Settings → Pages 中将 Source 设为 **GitHub Actions**。
-2. 推送至 `main` 分支即可触发部署。
+房间数据存在 Workers KV（`wrangler.toml` 里的 `ROOMS` 绑定）。首次部署前需要创建它，并把返回的 id 填进 `wrangler.toml`：
+
+```bash
+npx wrangler kv namespace create ROOMS
+```
+
+> 已从 GitHub Pages 迁移过来，旧的 `zxsos.github.io/roco-transfer/` 不再更新。
 
 ## 项目结构
 
@@ -79,7 +103,8 @@ npm run preview
 │       └── calculator.js     # 链条搜索 & 费用结算核心算法
 ├── users/                    # 预置成员头像（名称-UID.jpg，自动录入）
 ├── public/                   # 静态资源
-└── .github/workflows/        # GitHub Pages 自动部署
+├── functions/api/room.js     # 房间 API（GET 拉取 / POST upsert / DELETE 销毁）
+├── wrangler.toml             # Cloudflare Pages 项目 + KV 绑定
 ```
 
 ## 核心算法

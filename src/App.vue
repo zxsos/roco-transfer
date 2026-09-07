@@ -58,6 +58,62 @@
         </div>
       </header>
 
+      <!-- ===== 房间条 =====
+           未加入时两个按钮；已加入时显示房间码 + 复制 + 状态点 + 删除/退出。 -->
+      <section class="card room-bar" :class="{ joined: roomState.joined }">
+        <template v-if="!roomState.joined">
+          <div class="room-intro">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            </svg>
+            <span>建一个房间，把链接发到群里，每个人填自己的信息就会汇总到一起</span>
+          </div>
+          <div class="room-actions">
+            <input
+              v-model="roomInput"
+              class="input room-code-input"
+              placeholder="输入房间码"
+              maxlength="16"
+              @keydown.enter.prevent="doJoinRoom"
+            />
+            <button class="btn btn-secondary btn-sm" :disabled="!roomInput.trim()" @click="doJoinRoom">加入</button>
+            <button class="btn btn-primary btn-sm" @click="doCreateRoom">创建房间</button>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="room-meta">
+            <span class="room-dot" :class="roomState.status" :title="roomStatusText"></span>
+            <span class="room-label">房间码</span>
+            <code class="room-code">{{ roomState.code }}</code>
+          </div>
+          <div class="room-actions">
+            <button class="btn btn-secondary btn-sm" @click="copyRoomLink">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+              复制链接
+            </button>
+            <button class="btn btn-secondary btn-sm" @click="confirmDeleteRoom = true">删除房间</button>
+            <button class="btn btn-ghost btn-sm" @click="doLeaveRoom">退出</button>
+          </div>
+        </template>
+
+        <!-- 出错/房间已删的提示 -->
+        <p v-if="roomState.lastError" class="room-msg" :class="{ warn: roomState.status === 'gone' }">
+          {{ roomState.lastError }}
+        </p>
+
+        <!-- 删除房间二次确认:内联条,不用原生 confirm(移动端突兀且风格不统一) -->
+        <div v-if="confirmDeleteRoom" class="room-confirm">
+          <span>删除后群里所有人都会退回本地模式，且无法恢复。确定删除房间？</span>
+          <div class="room-confirm-actions">
+            <button class="btn btn-secondary btn-sm" @click="confirmDeleteRoom = false">取消</button>
+            <button class="btn btn-danger btn-sm" @click="doDeleteRoom">删除房间</button>
+          </div>
+        </div>
+      </section>
+
       <!-- ===== MAIN CONTENT ===== -->
       <div class="content-wrapper" :class="{ 'has-result': planResult && planResult.success }">
 
@@ -222,9 +278,30 @@
                       </span>
                     </div>
                   </div>
+                  <!-- 删除放在摘要行里:原来只在展开态有,删个人得先展开再删,
+                       两步操作没必要。放在箭头前并阻止冒泡(否则会顺带展开)。 -->
+                  <button
+                    class="summary-del"
+                    aria-label="删除"
+                    title="删除"
+                    @click.stop="removePerson(index)"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
                   <svg class="summary-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="6 9 12 15 18 9"/>
                   </svg>
+                </div>
+
+                <!-- 折叠态的删除确认条 -->
+                <div v-if="pendingDeleteIndex === index" class="person-confirm-del wide">
+                  <span>删除「{{ person.name }}」？他的好友关系也会一并移除</span>
+                  <div class="person-confirm-actions">
+                    <button class="btn btn-secondary btn-sm" @click="cancelDeletePerson">取消</button>
+                    <button class="btn btn-danger btn-sm" @click="confirmDeletePerson">删除</button>
+                  </div>
                 </div>
 
                 <!-- ===== 展开态 ===== -->
@@ -368,6 +445,7 @@
                        和档次时也会被收起来 —— 点「确认」是明确的「我填完了」。 -->
                   <div class="person-field confirm-field">
                     <button
+                      v-if="pendingDeleteIndex !== index"
                       class="btn btn-primary btn-sm person-confirm"
                       :disabled="!isFilled(person)"
                       @click="confirmPerson(person)"
@@ -377,6 +455,15 @@
                       </svg>
                       确认
                     </button>
+
+                    <!-- 删除二次确认:内联在这个人的卡片里,指明删的是谁 -->
+                    <div v-else class="person-confirm-del">
+                      <span>删除「{{ person.name }}」？他的好友关系也会一并移除</span>
+                      <div class="person-confirm-actions">
+                        <button class="btn btn-secondary btn-sm" @click="cancelDeletePerson">取消</button>
+                        <button class="btn btn-danger btn-sm" @click="confirmDeletePerson">删除</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -749,9 +836,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, onMounted } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { generatePlan, PRICE } from './utils/calculator.js'
 import html2canvas from 'html2canvas'
+import * as room from './room.js'
 
 // ===== 状态 =====
 const tier = ref('normal')
@@ -791,6 +879,98 @@ const exportContainer = ref(null)
 const fileInputRef = ref(null)
 const avatarInputRef = ref(null)
 let avatarTargetId = null
+
+// ===== 房间 =====
+const roomInput = ref('')
+const confirmDeleteRoom = ref(false)
+
+// 暴露给模板:roomState 是 reactive,模板里直接 roomState.xxx 即可(自动解包)
+const roomState = room.roomState
+
+const roomStatusText = computed(() => {
+  const s = roomState.status
+  return s === 'synced' ? '已同步' : s === 'syncing' ? '同步中' : s === 'gone' ? '房间已删除' : s === 'error' ? '同步出错' : '未加入房间'
+})
+
+// 交给 room.js 的两个钩子:它不知道 people 的内部结构,只认这两件事。
+// readLocal 导出当前配置,applyRemote 用远端快照覆盖本地。
+room.setRoomHooks({
+  readLocal: () => ({
+    elfName1: elfName1.value,
+    elfName2: elfName2.value,
+    maxGaps: maxGaps.value,
+    people: people.map((p) => ({
+      id: p.id,
+      name: p.name,
+      userId: p.userId || '',
+      avatar: p.avatar || '',
+      tier: p.tier || 'normal',
+      needElf: p.needElf,
+      isHead: !!p.isHead,
+    })),
+    friendships: buildFriendMatrix(),
+  }),
+  // applyRemote 用 applyConfig 的同款逻辑:它已处理字符串 id、去重、
+  // 车头唯一等,不另写一套。
+  //
+  // **但要先存后还 collapsed**:applyConfig 会重建 people,而 collapsed
+  // 是纯前端状态(服务端不存)。不还原的话有两个后果:
+  //   1. 刚点「确认」折叠的人,推送回来又被展开;
+  //   2. 正在展开编辑的人,被 15 秒一次的轮询强制收起 —— 直接打断输入。
+  //
+  // preserveEditing:展开编辑中的人**整条保留本地**,不用远端覆盖。
+  // 他确认时会推送,那时才与远端合并。
+  applyRemote: (cfg) => {
+    const editing = new Set(people.filter((p) => !p.collapsed).map((p) => p.id))
+    const prev = new Map(people.map((p) => [p.id, p]))
+    applyConfig(cfg)
+    for (let i = 0; i < people.length; i++) {
+      const id = people[i].id
+      if (editing.has(id) && prev.has(id)) {
+        people[i] = prev.get(id) // 编辑中:保留本地,含正在输入的内容
+      } else if (prev.has(id)) {
+        people[i].collapsed = prev.get(id).collapsed
+      }
+    }
+  },
+})
+
+async function doCreateRoom() {
+  const ok = await room.createRoom()
+  showImportToast(ok ? '房间已创建，复制链接发到群里' : room.roomState.lastError)
+}
+
+async function doJoinRoom() {
+  const ok = await room.joinRoom(roomInput.value)
+  if (ok) {
+    roomInput.value = ''
+    showImportToast('已加入房间')
+  } else {
+    showImportToast(room.roomState.lastError || '加入失败')
+  }
+}
+
+function doLeaveRoom() {
+  room.leaveRoom()
+  showImportToast('已退出房间，现为本地模式')
+}
+
+async function doDeleteRoom() {
+  confirmDeleteRoom.value = false
+  const ok = await room.deleteRoom()
+  showImportToast(ok ? '房间已删除' : room.roomState.lastError)
+}
+
+async function copyRoomLink() {
+  const url = room.roomUrl(room.roomState.code)
+  try {
+    await navigator.clipboard.writeText(url)
+    showImportToast('链接已复制，发到群里即可')
+  } catch {
+    // 剪贴板 API 在非 HTTPS 下不可用(局域网访问时),退回选中提示
+    showImportToast(url || '复制失败，请手动复制地址栏')
+  }
+}
 
 // ===== 主题系统 =====
 function applyTheme(mode) {
@@ -937,6 +1117,8 @@ function confirmPerson(person) {
     people.splice(i, 1)
     people.push(person)
   }
+  // 确认 = 一次明确的「我改完了」,此刻才推送,避免打字过程中反复写 KV
+  if (room.roomState.joined) room.pushLocal()
 }
 
 function toggleCollapse(person) {
@@ -972,9 +1154,40 @@ function loadUsersFromDir() {
   loaded.forEach((p) => people.push(p))
 }
 
-onMounted(loadUsersFromDir)
+onMounted(async () => {
+  loadUsersFromDir()
+  room.installVisibilityHook()
+  // 分享链接带 ?r=<码>,打开即自动加入
+  const code = room.codeFromUrl()
+  if (code) {
+    const ok = await room.joinRoom(code)
+    showImportToast(ok ? '已加入房间' : room.roomState.lastError || '加入房间失败')
+  }
+})
 
+onUnmounted(() => {
+  room.stopPolling()
+})
+
+// removePerson 删除成员。
+// 加了房间时走「二次确认 + 显式删除」:直接删的话,别人的旧数据一推送就会把
+// 这个人复活(详见 room.js 的墓碑机制说明)。
 function removePerson(index) {
+  const person = people[index]
+  if (!person) return
+  pendingDeleteIndex.value = index
+}
+
+// pendingDeleteIndex 非空表示正在等二次确认;确认后才真正移除。
+const pendingDeleteIndex = ref(-1)
+
+function cancelDeletePerson() {
+  pendingDeleteIndex.value = -1
+}
+
+function confirmDeletePerson() {
+  const index = pendingDeleteIndex.value
+  if (index < 0 || !people[index]) return
   const removed = people.splice(index, 1)[0]
   const keysToDelete = []
   for (const [key] of friendships) {
@@ -983,6 +1196,13 @@ function removePerson(index) {
     }
   }
   keysToDelete.forEach((k) => friendships.delete(k))
+  pendingDeleteIndex.value = -1
+  // 在房间里就记一笔待删,随下次提交发给服务端;否则本地删掉即可
+  if (room.roomState.joined) {
+    room.markDeleted(removed.id)
+    room.pushLocal()
+  }
+  planResult.value = null
 }
 
 function onHeadToggle(person) {
@@ -1223,7 +1443,13 @@ function handleImportConfig(event) {
   event.target.value = ''
 }
 
-function applyConfig(config) {
+// applyConfig 用一份配置覆盖本地。
+//
+// opts.preserveEditing:房间同步时传 true。含义是**不打断正在编辑的人** ——
+// 展开着(未折叠)的卡片保留本地版本,哪怕远端有更新的数据。否则别人每加一个人,
+// 我正在打字的那张卡片就会被远端快照冲掉。
+// 同理,collapsed 状态按 id 保留:不然刚点「确认」折叠,下一次轮询就把它展开了。
+function applyConfig(config, opts = {}) {
   if (!config || typeof config !== 'object') {
     throw new Error('配置文件格式无效')
   }
@@ -1232,6 +1458,9 @@ function applyConfig(config) {
   // 老配置没有 maxGaps,缺省按 0(只给确定方案),与默认值一致。
   const g = Number(config.maxGaps)
   maxGaps.value = Number.isFinite(g) && g >= 0 && g <= 2 ? Math.round(g) : 0
+
+  const prevById = new Map(people.map((p) => [p.id, p]))
+  const preserveEditing = !!opts.preserveEditing
 
   people.length = 0
   const seen = new Set()
@@ -1257,6 +1486,9 @@ function applyConfig(config) {
         // 兼容老配置(没有 tier 字段):按普通处理
         tier: p.tier === 'premium' ? 'premium' : 'normal',
         isHead: !!p.isHead,
+        // 已填完的默认折叠(预置成员/房间同步回来的都是这种情况);
+        // 房间同步时会被 applyRemote 的 prev 覆盖成本地真实状态。
+        collapsed: !!name,
       })
     }
   }
@@ -2220,6 +2452,174 @@ body {
 .gap-ticks .on {
   color: var(--accent);
   font-weight: 700;
+}
+
+/* ===== 房间条 ===== */
+.room-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.room-intro {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 200px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.room-intro svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.room-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.room-code-input {
+  width: 130px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+}
+
+.room-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.room-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.room-code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--fill);
+  color: var(--text);
+  user-select: all;
+}
+
+/* 状态点:颜色即状态,不占横向空间 */
+.room-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: background 0.2s var(--ease-out);
+}
+
+.room-dot.synced { background: var(--green); }
+.room-dot.syncing { background: var(--orange); animation: room-pulse 1.2s ease-in-out infinite; }
+.room-dot.error { background: var(--red); }
+.room-dot.gone { background: var(--text-tertiary); }
+
+@keyframes room-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.room-msg {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.room-msg.warn { color: var(--red); }
+
+/* 内联确认条 */
+.room-confirm,
+.person-confirm-del {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border-radius: var(--radius-xs);
+  background: var(--red-bg);
+  border: 1px solid var(--red-border);
+  font-size: 12.5px;
+  color: var(--red);
+  line-height: 1.5;
+}
+
+.room-confirm-actions,
+.person-confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.person-confirm-del {
+  margin-left: auto;
+  width: auto;
+  flex-basis: auto;
+}
+
+/* 折叠态的删除确认条需要独占一整行(它在摘要行下方) */
+.person-confirm-del.wide {
+  margin-left: 0;
+  flex-basis: 100%;
+  width: auto;
+}
+
+/* 摘要行里的删除按钮:默认极淡,hover/focus 才显形 ——
+   避免每个折叠行都有个显眼的叉,看着像「待处理」 */
+.summary-del {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-tertiary);
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 0.15s var(--ease-out), background 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.summary-del:hover,
+.summary-del:focus-visible {
+  opacity: 1;
+  background: var(--red-bg);
+  color: var(--red);
+  outline: none;
+}
+
+/* 减弱动效时不闪 */
+@media (prefers-reduced-motion: reduce) {
+  .room-dot.syncing { animation: none; }
+}
+
+@media (max-width: 560px) {
+  .room-bar { align-items: flex-start; }
+  .room-actions { width: 100%; }
+  .room-code-input { flex: 1; width: auto; min-width: 0; }
+  .room-code { overflow-x: auto; }
 }
 
 /* 档次与规则表(替换原先的全局档次选择器) */

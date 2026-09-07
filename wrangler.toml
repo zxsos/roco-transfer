@@ -1,0 +1,12 @@
+# Cloudflare Pages 项目配置
+#
+# 项目名决定 pages.dev 子域：rocom-pass-the-torch.pages.dev
+# KV namespace id 由 `npx wrangler kv:namespace create ROOMS` 生成后填入下方。
+
+name = "rocom-pass-the-torch"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "dist"
+
+[[kv_namespaces]]
+binding = "ROOMS"
+id = "0cacce4b54af48b1b3c67b86efd51adf"
