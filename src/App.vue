@@ -766,7 +766,20 @@ const maxGaps = ref(0)
 const themeMode = ref('system')
 const resolvedTheme = ref('light')
 
-let nextId = 1
+// newId 生成成员 id。
+//
+// **必须是随机串而不是自增数字**:id 是多人合并的唯一键,自增的话客户端 A、B
+// 都会生成 id=1 的不同成员,一合并就互相覆盖。
+//
+// 用 randomUUID 但带降级:它是 Secure Context 专属,手机通过局域网
+// (http://192.168.x.x) 访问时不可用,此时退回 Math.random。
+// 取 UUID 前 8 位(hex,不含 '-'),保证好友 key 的 split('-') 仍安全。
+function newId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().slice(0, 8)
+  }
+  return Math.random().toString(36).slice(2, 10)
+}
 const people = reactive([])
 const friendships = reactive(new Map())
 const planResult = ref(null)
@@ -887,7 +900,7 @@ function addPerson() {
   // 1 豪华 + 1 普通副券、普通版只能送 1 张普通 —— 这个差异直接决定树怎么长,
   // 所以必须落到每个人身上。
   // collapsed:点「确认」后折叠成摘要行(见 confirmPerson)。
-  people.push({ id: nextId++, name: '', userId: '', avatar: '', needElf: 'elf1', tier: 'normal', isHead: false, collapsed: false })
+  people.push({ id: newId(), name: '', userId: '', avatar: '', needElf: 'elf1', tier: 'normal', isHead: false, collapsed: false })
 
   // 新卡片落在列表末尾(**不能**改成插到顶部):好友勾选只列「前面已添加的人」,
   // 插到顶部会让 index=0 的人一个好友都选不到。人多了末尾看不见,所以这里
@@ -953,7 +966,7 @@ function loadUsersFromDir() {
     if (!name) continue
     // 预置成员(users/ 目录)姓名/头像已齐,默认折叠;精灵与档次仍需补选,
     // 点摘要行即可展开。手动添加的新成员则保持展开待填。
-    loaded.push({ id: nextId++, name, userId, avatar: url, needElf: 'any', tier: 'normal', isHead: false, collapsed: true })
+    loaded.push({ id: newId(), name, userId, avatar: url, needElf: 'any', tier: 'normal', isHead: false, collapsed: true })
   }
   loaded.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   loaded.forEach((p) => people.push(p))
@@ -995,7 +1008,6 @@ function getElfName(elf) {
 function resetAll() {
   people.length = 0
   friendships.clear()
-  nextId = 1
   maxGaps.value = 0
   elfName1.value = '新月鹭'
   elfName2.value = '热团团'
@@ -1008,7 +1020,8 @@ function resetAll() {
 function buildFriendMatrix() {
   const matrix = []
   for (const [key] of friendships) {
-    const [idA, idB] = key.split('-').map(Number)
+    // id 是字符串,**不要** map(Number)。随机 id 为 hex(不含 '-'),split 安全。
+    const [idA, idB] = key.split('-')
     matrix.push([idA, idB])
   }
   return matrix
@@ -1221,20 +1234,22 @@ function applyConfig(config) {
   maxGaps.value = Number.isFinite(g) && g >= 0 && g <= 2 ? Math.round(g) : 0
 
   people.length = 0
-  let maxId = 0
-  const idMap = new Map()
+  const seen = new Set()
+  const oldToNew = new Map()
   if (Array.isArray(config.people)) {
     for (const p of config.people) {
       if (!p || typeof p !== 'object') continue
-      const originalId = Number(p.id)
-      const newId = Number.isFinite(originalId) && originalId > 0 ? originalId : maxId + 1
-      if (idMap.has(newId)) continue
-      idMap.set(originalId, newId)
-      maxId = Math.max(maxId, newId)
+      // id 是字符串:老配置(数字自增)用 String() 兼容,缺 id 的补一个随机的。
+      // 重复 id 直接跳过 —— 多人合并后可能出现,保留第一条。
+      let pid = p.id != null && String(p.id).trim() !== '' ? String(p.id).trim() : newId()
+      if (seen.has(pid)) continue
+      seen.add(pid)
+      // 老配置是数字 id,转成字符串后好友对也要跟着转,否则匹配不上
+      oldToNew.set(String(p.id ?? ''), pid)
       const needElf = ['elf1', 'elf2', 'any'].includes(p.needElf) ? p.needElf : 'elf1'
       const avatar = typeof p.avatar === 'string' && p.avatar.startsWith('data:image/') ? p.avatar : ''
       people.push({
-        id: newId,
+        id: pid,
         name: typeof p.name === 'string' ? p.name : '',
         userId: typeof p.userId === 'string' ? p.userId : '',
         avatar,
@@ -1245,8 +1260,6 @@ function applyConfig(config) {
       })
     }
   }
-  nextId = maxId + 1
-
   const headList = people.filter((p) => p.isHead)
   if (headList.length > 1) headList.slice(1).forEach((p) => (p.isHead = false))
 
@@ -1255,8 +1268,11 @@ function applyConfig(config) {
     const validIds = new Set(people.map((p) => p.id))
     for (const pair of config.friendships) {
       if (!Array.isArray(pair) || pair.length !== 2) continue
-      const a = Number(pair[0])
-      const b = Number(pair[1])
+      // 保持字符串,不做 Number 转换;老配置经 oldToNew 映射后再比对
+      let a = String(pair[0]).trim()
+      let b = String(pair[1]).trim()
+      if (oldToNew.has(a)) a = oldToNew.get(a)
+      if (oldToNew.has(b)) b = oldToNew.get(b)
       if (!validIds.has(a) || !validIds.has(b) || a === b) continue
       friendships.set(getFriendKey(a, b), true)
     }
