@@ -558,6 +558,40 @@
         </div>
       </div>
 
+      <!-- ===== 移动端底部操作条 =====
+           结果区很长(链条 + 每人一张卡片),单列下滚到底后要一路滑回顶部
+           才能改配置重新生成。这里常驻一条操作条,按钮与上方 action-bar
+           共用 doGenerate,行为完全一致(含校验与错误提示)。
+           桌面端双列时左栏已 sticky,不需要 —— 见样式里的 960px 断点。 -->
+      <div class="mobile-bar" :class="{ 'has-result': planResult && planResult.success }">
+        <button
+          class="btn btn-large btn-primary mobile-bar-main"
+          :disabled="people.length < 2 || computing"
+          @click="doGenerate"
+        >
+          <template v-if="computing">
+            <span class="spinner"></span>
+            计算中...
+          </template>
+          <template v-else>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            {{ planResult && planResult.success ? '重新生成方案' : '生成传火方案' }}
+          </template>
+        </button>
+        <button
+          class="mobile-bar-top"
+          @click="scrollTop"
+          aria-label="回到顶部"
+          title="回到顶部"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+          </svg>
+        </button>
+      </div>
+
     </div>
   </div>
 </template>
@@ -736,6 +770,14 @@ function buildFriendMatrix() {
     matrix.push([idA, idB])
   }
   return matrix
+}
+
+// scrollTop 移动端底部操作条的「回到顶部」。
+// 用 behavior:'smooth' 但在减弱动效偏好下退回瞬间跳转 —— 后者是前庭敏感用户
+// 的明确偏好,不是可选项。
+function scrollTop() {
+  const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' })
 }
 
 async function doGenerate() {
@@ -1135,6 +1177,20 @@ body {
 #app {
   min-height: 100vh;
 }
+
+/* 减弱动效:系统里开了「减少动态效果」的用户(前庭敏感 / 易晕动)明确要求
+   少动。这里统一压到近乎瞬时,而不是逐个 transition 去改 —— 漏一处就是
+   一整页的位移/缩放动画。滚动平滑另见 scrollTop 的运行时判断。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 </style>
 
 <style scoped>
@@ -1169,7 +1225,8 @@ body {
   z-index: 1;
   max-width: 1320px;
   margin: 0 auto;
-  padding: 24px 20px 64px;
+  /* 底部留白用 safe-area 兜底:iPhone 的 Home Indicator 会盖住最后一张卡片 */
+  padding: 24px 20px calc(64px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ===== HEADER ===== */
@@ -1245,7 +1302,9 @@ body {
 .content-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  /* 纵向时**不给** gap:卡片自带 margin-bottom,再叠 gap 会变成 36px 的
+     双倍间距(横向时 gap 才是列间距,那时没有 margin 叠加的问题)。 */
+  gap: 0;
 }
 
 /* Desktop: side-by-side */
@@ -1253,6 +1312,7 @@ body {
   .content-wrapper {
     flex-direction: row;
     align-items: flex-start;
+    gap: 24px;
   }
 
   .config-column {
@@ -1260,6 +1320,9 @@ body {
     max-width: 520px;
     position: sticky;
     top: 24px;
+    /* sticky 列整体不该再吃最后一卡的 margin,否则 sticky 高度虚高、
+       滚到底时会出现一段空白 */
+    padding-bottom: 0;
   }
 
   .result-column {
@@ -1280,6 +1343,19 @@ body {
   .content-wrapper.has-result .config-column { max-width: 480px; }
 }
 
+/* 宽屏:容器放宽,并把列间距拉开 —— 1320px 在 27" 上两侧留白过多,
+   而两列挤在中间反而不好读。 */
+@media (min-width: 1440px) {
+  .app-content {
+    max-width: 1560px;
+  }
+  .content-wrapper {
+    gap: 40px;
+  }
+  .config-column { max-width: 600px; }
+  .content-wrapper.has-result .config-column { max-width: 520px; }
+}
+
 /* ===== CARD ===== */
 .card {
   background: var(--surface);
@@ -1293,8 +1369,12 @@ body {
   transition: box-shadow 0.3s var(--ease-out);
 }
 
-.card:hover {
-  box-shadow: var(--shadow-md);
+/* 只在真有指针悬停的设备上做 hover:触屏上 :hover 会在点过一次后
+   「粘住」(sticky hover),卡片保持高亮直到点了别处。 */
+@media (hover: hover) {
+  .card:hover {
+    box-shadow: var(--shadow-md);
+  }
 }
 
 /* ===== SECTION ===== */
@@ -2568,16 +2648,88 @@ body {
   transition: transform 0.45s var(--ease-out);
 }
 
+/* ===== MOBILE ACTION BAR =====
+   仅在单列(<960px)出现:桌面左栏已 sticky,不需要。
+   固定底部会盖住内容,故同时给 .app-content 补上等高底部留白。 */
+.mobile-bar {
+  display: none;
+}
+
+@media (max-width: 959px) {
+  .mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+  }
+
+  .mobile-bar-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+  }
+
+  /* 回顶按钮:方形、与主按钮等高,只占必要宽度 */
+  .mobile-bar-top {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong);
+    background: var(--surface-solid);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.2s var(--ease-out), color 0.2s var(--ease-out);
+  }
+  .mobile-bar-top:active {
+    background: var(--fill);
+    color: var(--text);
+  }
+}
+
 /* ===== RESPONSIVE ENHANCEMENTS ===== */
 @media (max-width: 959px) {
   .app-content {
-    padding: 16px 12px 48px;
+    /* 底部让出操作条的高度(条 ~68px + 一点余量),否则最后一张卡片被盖住 */
+    padding: 16px 12px calc(96px + env(safe-area-inset-bottom, 0px));
   }
 
   .app-header {
-    padding: 12px 16px;
+    padding: 10px 14px;
     margin-bottom: 16px;
     border-radius: var(--radius-sm);
+    gap: 8px;
+  }
+
+  /* 窄屏:标题截断而不是把右侧按钮挤出去。min-width:0 是 flex 子项
+     能收缩的前提,缺了它 ellipsis 不生效、header 会横向溢出。 */
+  .app-title-text {
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 导入/导出在窄屏只留图标 —— 文字留着会把主题切换挤出可视区 */
+  .btn-text {
+    display: none;
+  }
+
+  .btn-sm {
+    padding: 7px 10px;
   }
 
   .card {
@@ -2599,8 +2751,10 @@ body {
 }
 
 @media (max-width: 420px) {
+  /* 极窄屏:标题不再缩字号(16px 在 320px 宽下仍会挤),保持与 959 断点
+     一致的截断处理,只把内边距再收紧一点 */
   .app-title-text {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .btn-large {
@@ -2610,6 +2764,14 @@ body {
 
   .segment-btn {
     padding: 12px 8px;
+  }
+
+  /* 触摸目标 ≥44px(Apple HIG / WCAG 2.5.5 的实用下限):
+     窄屏上小图标按钮最容易点错 */
+  .theme-toggle,
+  .btn-sm {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .segment-text {
