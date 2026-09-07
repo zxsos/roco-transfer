@@ -143,14 +143,52 @@
                 <div class="elf-input-wrap">
                   <input v-model="elfName1" placeholder="新月鹭" class="input" />
                   <!-- 介绍图:缩略图 + 点开看大图(见 ElfFigure) -->
-                  <ElfFigure :src="ELF_IMG[0]" :name="elfName1 || '精灵1'" :on-open="openFigure" />
+                  <ElfFigure :src="elfImg1" :name="elfName1 || '精灵1'" :on-open="openFigure" />
                 </div>
               </div>
               <div class="elf-name-field">
                 <label class="field-label">精灵2</label>
                 <div class="elf-input-wrap">
                   <input v-model="elfName2" placeholder="热团团" class="input" />
-                  <ElfFigure :src="ELF_IMG[1]" :name="elfName2 || '精灵2'" :on-open="openFigure" />
+                  <ElfFigure :src="elfImg2" :name="elfName2 || '精灵2'" :on-open="openFigure" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 介绍图设置:默认收起。换了当期精灵时才用得上,不该占着主界面。
+                 URL 以 http 开头才算合法(数据 URL 太长,不适合存进房间)。 -->
+            <div class="elf-img-settings">
+              <button
+                class="elf-img-toggle"
+                type="button"
+                :aria-expanded="showImgSettings"
+                @click="showImgSettings = !showImgSettings"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                </svg>
+                精灵介绍图
+                <svg
+                  class="elf-img-caret"
+                  :class="{ open: showImgSettings }"
+                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                >
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+
+              <div v-if="showImgSettings" class="elf-img-fields">
+                <div class="elf-img-field">
+                  <label class="field-label">精灵1图片链接</label>
+                  <input v-model="elfImg1" class="input" placeholder="https://…（留空则不显示）" inputmode="url" @blur="pushIfJoined" />
+                </div>
+                <div class="elf-img-field">
+                  <label class="field-label">精灵2图片链接</label>
+                  <input v-model="elfImg2" class="input" placeholder="https://…（留空则不显示）" inputmode="url" @blur="pushIfJoined" />
+                </div>
+                <div class="elf-img-actions">
+                  <span class="elf-img-note">支持外链；留空则隐藏缩略图</span>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="resetElfImg">恢复默认</button>
                 </div>
               </div>
             </div>
@@ -860,11 +898,15 @@ import * as room from './room.js'
 import ElfFigure from './components/ElfFigure.vue'
 import FigureViewer from './components/FigureViewer.vue'
 
-// 两个精灵的介绍图(外链,长期有效)。
-// 用外链而非打包进仓库:原图是 4K(3840×2160)约 388KB/张,两张就快 800KB,
-// 打进产物会让首屏白白多下载这些字节 —— 而它们只在用户主动点开时才需要。
+// 两个精灵的介绍图。
+//
+// **默认值而非常量**:当期精灵会轮换,图片得让使用者自己换。默认填的是
+// 当前这一期(新月鹭 / 热团团)的图,在「精灵介绍图」设置里可改成别的 URL。
+//
+// 用外链而非打包进仓库:原图是 4K(3840×2160)约 388KB/张,两张近 800KB,
+// 打进产物会让首屏白白下载这些字节 —— 而它们只在用户主动点开时才需要。
 // 页面上是 34px 缩略图,点开才加载大图。
-const ELF_IMG = [
+const DEFAULT_ELF_IMG = [
   'https://zxsos.pages.dev/file/1788773722701_axy6Q65-at96Z13T3cS2yo-1o0.webp', // 精灵1
   'https://zxsos.pages.dev/file/1788773713686_axy6Q65-3hrnZ13T3cS2yo-1o0.webp', // 精灵2(热团团)
 ]
@@ -873,6 +915,11 @@ const ELF_IMG = [
 const tier = ref('normal')
 const elfName1 = ref('新月鹭')
 const elfName2 = ref('热团团')
+
+// 介绍图 URL(可改,默认当期精灵)。留空则不显示缩略图。
+const elfImg1 = ref(DEFAULT_ELF_IMG[0])
+const elfImg2 = ref(DEFAULT_ELF_IMG[1])
+const showImgSettings = ref(false)
 
 // maxGaps 最多留几个空位(0~2)。默认 0:只给确定方案,不提示补人。
 // 使用者想要「再拉人能省多少」时再手动放开 —— 提示是可选信息,不该默认打扰。
@@ -907,10 +954,23 @@ const exportContainer = ref(null)
 const avatarInputRef = ref(null)
 let avatarTargetId = null
 
-// ===== 精灵介绍图大图预览 =====
+// ===== 精灵介绍图 =====
 const figure = ref(null) // { src, name } | null
 function openFigure(f) {
   figure.value = f
+}
+
+function resetElfImg() {
+  elfImg1.value = DEFAULT_ELF_IMG[0]
+  elfImg2.value = DEFAULT_ELF_IMG[1]
+  showImportToast('已恢复默认的精灵介绍图')
+  pushIfJoined()
+}
+
+// pushIfJoined 改完图片链接后同步给房间(没加房间时什么都不做)。
+// 与标量字段一样只在已加入时推送,避免本地操作时误发请求。
+function pushIfJoined() {
+  if (room.roomState.joined) room.pushLocal()
 }
 
 // ===== 房间 =====
@@ -931,6 +991,8 @@ room.setRoomHooks({
   readLocal: () => ({
     elfName1: elfName1.value,
     elfName2: elfName2.value,
+    elfImg1: elfImg1.value,
+    elfImg2: elfImg2.value,
     maxGaps: maxGaps.value,
     people: people.map((p) => ({
       id: p.id,
@@ -1425,6 +1487,10 @@ function applyConfig(config, opts = {}) {
   }
   if (typeof config.elfName1 === 'string') elfName1.value = config.elfName1
   if (typeof config.elfName2 === 'string') elfName2.value = config.elfName2
+  // 介绍图:只认 http(s) 外链。数据 URL 动辄几百 KB,存进房间会撑爆 KV。
+  // 留空(空串)是合法的,表示「不显示缩略图」—— 故只做类型判断,不过滤空值。
+  if (typeof config.elfImg1 === 'string') elfImg1.value = config.elfImg1.trim()
+  if (typeof config.elfImg2 === 'string') elfImg2.value = config.elfImg2.trim()
   // 老配置没有 maxGaps,缺省按 0(只给确定方案),与默认值一致。
   const g = Number(config.maxGaps)
   maxGaps.value = Number.isFinite(g) && g >= 0 && g <= 2 ? Math.round(g) : 0
@@ -2066,6 +2132,72 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* ===== 介绍图设置(默认收起) ===== */
+.elf-img-settings {
+  margin-top: 12px;
+}
+
+.elf-img-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--fill);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.18s var(--ease-out), color 0.18s var(--ease-out);
+}
+
+.elf-img-toggle:hover {
+  background: var(--fill-secondary);
+  color: var(--text);
+}
+
+.elf-img-caret {
+  transition: transform 0.2s var(--ease-out);
+}
+
+.elf-img-caret.open {
+  transform: rotate(180deg);
+}
+
+.elf-img-fields {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--fill);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.elf-img-field .input {
+  width: 100%;
+  font-size: 12px;
+}
+
+.elf-img-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.elf-img-note {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .elf-img-caret {
+    transition: none;
+  }
 }
 
 .elf-input-wrap .input {

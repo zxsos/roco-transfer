@@ -43,7 +43,15 @@ const keyOf = (id) => `room:${id}`
 const delKeyOf = (id) => `room:${id}:deleted`
 
 function emptyConfig() {
-  return { elfName1: '新月鹭', elfName2: '热团团', maxGaps: 0, people: [], friendships: [] }
+  return {
+    elfName1: '新月鹭',
+    elfName2: '热团团',
+    elfImg1: '',
+    elfImg2: '',
+    maxGaps: 0,
+    people: [],
+    friendships: [],
+  }
 }
 
 // sanitizePerson 校验并收敛一个人的数据；非法则返回 null（该条被丢弃）。
@@ -69,6 +77,17 @@ function sanitizePerson(p) {
     needElf,
     isHead: !!p.isHead,
   }
+}
+
+// safeImgUrl 收敛一个介绍图 URL:只放行 http(s) 外链,不合法则沿用旧值。
+// 空串是合法的 —— 表示「不显示介绍图」。
+function safeImgUrl(v, fallback) {
+  if (typeof v !== 'string') return typeof fallback === 'string' ? fallback : ''
+  const s = v.trim()
+  if (s === '') return ''
+  if (s.length > 2048) return typeof fallback === 'string' ? fallback : ''
+  if (!/^https?:\/\//i.test(s)) return typeof fallback === 'string' ? fallback : ''
+  return s
 }
 
 function normPair(pair) {
@@ -190,6 +209,10 @@ export async function onRequestPost({ request, env }) {
   if (baseRev === room.rev) {
     if (typeof submitted.elfName1 === 'string') cfg.elfName1 = submitted.elfName1.slice(0, 16)
     if (typeof submitted.elfName2 === 'string') cfg.elfName2 = submitted.elfName2.slice(0, 16)
+    // 介绍图只收 http(s) 外链,长度也限制一下(URL 不该超过 2048)。
+    // **拒掉 data: 开头的**:那是图片本体,几百 KB 会撑爆 KV 单值。
+    cfg.elfImg1 = safeImgUrl(submitted.elfImg1, room.config.elfImg1)
+    cfg.elfImg2 = safeImgUrl(submitted.elfImg2, room.config.elfImg2)
     const g = Number(submitted.maxGaps)
     if (Number.isFinite(g) && g >= 0 && g <= 5) cfg.maxGaps = Math.round(g)
   }
