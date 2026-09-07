@@ -227,6 +227,37 @@
                       <span class="toggle-knob"></span>
                     </button>
                   </div>
+
+                  <!-- 好友勾选:只列**前面已添加**的人。
+                       好友关系是双向的(甲是乙的好友 == 乙是甲的好友),所以
+                       每对只需要在后添加的那个人身上勾一次 —— 这就是矩阵的
+                       下三角,既不会漏也不会重复。
+                       原先是一张 n×n 矩阵:10 个人要滚 100 格,而其中一半
+                       是另一半的镜像,纯属重复劳动。 -->
+                  <div v-if="index > 0" class="person-field friend-field">
+                    <label class="field-label">好友</label>
+                    <div class="fp-chips">
+                      <button
+                        v-for="prev in people.slice(0, index)"
+                        :key="'f-' + prev.id"
+                        class="fp-chip"
+                        :class="{ active: isFriendPair(person.id, prev.id) }"
+                        @click="toggleFriendCell(person.id, prev.id)"
+                        :aria-pressed="isFriendPair(person.id, prev.id)"
+                      >
+                        <span class="fp-chip-box">
+                          <svg v-if="isFriendPair(person.id, prev.id)" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        </span>
+                        {{ prev.name || '未命名' }}
+                      </button>
+                    </div>
+                  </div>
+                  <div v-else class="person-field friend-field">
+                    <label class="field-label">好友</label>
+                    <p class="friend-hint">第一个人无需选择，后续成员勾选与谁互为好友</p>
+                  </div>
                 </div>
 
                 <!-- 删除按钮 -->
@@ -239,59 +270,6 @@
             </TransitionGroup>
           </section>
 
-          <!-- 好友关系矩阵 -->
-          <section v-if="people.length >= 2" class="card friend-section">
-            <div class="section-header">
-              <h2 class="section-title">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="section-title-icon">
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>
-                </svg>
-                好友关系
-              </h2>
-              <div class="section-actions">
-                <span class="friend-count">共 {{ friendCount }} 对好友</span>
-                <button class="btn btn-secondary btn-sm" @click="clearAllFriends">清空</button>
-              </div>
-            </div>
-            <p class="section-hint">勾选单元格表示两人互为好友（对角线不可选）</p>
-            <div class="matrix-wrapper">
-              <table class="friend-matrix">
-                <thead>
-                  <tr>
-                    <th class="matrix-corner"></th>
-                    <th v-for="p in people" :key="'h-' + p.id" class="matrix-header">
-                      <span class="matrix-name">{{ p.name || '—' }}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(row, ri) in people" :key="'r-' + row.id">
-                    <td class="matrix-row-header">
-                      <span class="matrix-name">{{ row.name || '—' }}</span>
-                    </td>
-                    <td
-                      v-for="(col, ci) in people"
-                      :key="'c-' + col.id"
-                      class="matrix-cell"
-                      :class="{
-                        'cell-diagonal': ri === ci,
-                        'cell-checked': ri !== ci && isFriendPair(row.id, col.id),
-                        'cell-hover': hoveredCell && ((hoveredCell.ri === ri && hoveredCell.ci === ci) || (hoveredCell.ri === ci && hoveredCell.ci === ri)),
-                      }"
-                      @click="ri !== ci && toggleFriendCell(row.id, col.id)"
-                      @mouseenter="hoveredCell = { ri, ci }"
-                      @mouseleave="hoveredCell = null"
-                    >
-                      <span v-if="ri === ci" class="cell-diagonal-mark">—</span>
-                      <svg v-else-if="isFriendPair(row.id, col.id)" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="cell-check">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
 
           <!-- 操作栏 -->
           <div class="action-bar">
@@ -683,7 +661,6 @@ const friendCount = computed(() => {
   return count
 })
 
-const hoveredCell = ref(null)
 
 // ===== 好友关系 =====
 function getFriendKey(idA, idB) {
@@ -703,9 +680,6 @@ function toggleFriendCell(idA, idB) {
   }
 }
 
-function clearAllFriends() {
-  friendships.clear()
-}
 
 // ===== 人物管理 =====
 function addPerson() {
@@ -1761,6 +1735,72 @@ body {
   min-width: 0;
 }
 
+/* 好友勾选独占整行:人数一多 chip 会换行,挤在半列里没法点 */
+.person-field.friend-field {
+  grid-column: 1 / -1;
+}
+
+.friend-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  padding-top: 2px;
+}
+
+.fp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 类名与结果区的 .friend-chip 刻意区分开:那个是只读的「是/否好友」标记,
+   这个是可点的复选框,共用一套样式会互相污染。 */
+.fp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px 5px 7px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  max-width: 100%;
+  transition: border-color 0.18s var(--ease-out), background 0.18s var(--ease-out), color 0.18s var(--ease-out);
+}
+
+.fp-chip:active {
+  transform: scale(0.96);
+}
+
+.fp-chip.active {
+  border-color: var(--green-border);
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+/* 复选框方块:未勾选是空心描边,勾选后填绿 + 白勾 */
+.fp-chip-box {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  transition: background 0.18s var(--ease-out), border-color 0.18s var(--ease-out);
+}
+
+.fp-chip.active .fp-chip-box {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
 .person-field {
   min-width: 0;
 }
@@ -1878,102 +1918,6 @@ body {
 }
 
 /* ===== FRIEND MATRIX ===== */
-.matrix-wrapper {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 4px;
-  margin: 0 -4px;
-}
-
-.friend-matrix {
-  border-collapse: separate;
-  border-spacing: 4px;
-  margin: 0 auto;
-}
-
-.matrix-corner {
-  width: 48px;
-}
-
-.matrix-header,
-.matrix-row-header {
-  padding: 6px 8px;
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--fill);
-  border-radius: 6px;
-  min-width: 44px;
-}
-
-.matrix-row-header {
-  text-align: right;
-}
-
-.matrix-name {
-  display: inline-block;
-  max-width: 56px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-
-.matrix-cell {
-  width: 40px;
-  height: 40px;
-  text-align: center;
-  vertical-align: middle;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s var(--ease-out);
-  background: var(--fill);
-  border: 1px solid var(--border);
-  user-select: none;
-  color: var(--blue);
-}
-
-.matrix-cell:hover:not(.cell-diagonal) {
-  background: var(--fill-secondary);
-}
-
-.matrix-cell.cell-hover:not(.cell-diagonal) {
-  background: var(--blue-bg);
-  border-color: var(--blue-border);
-}
-
-.matrix-cell.cell-checked {
-  background: var(--blue-bg);
-  border-color: var(--blue-border);
-}
-
-.matrix-cell.cell-checked.cell-hover {
-  background: rgba(0, 122, 255, 0.15);
-  border-color: rgba(0, 122, 255, 0.28);
-}
-
-.cell-diagonal {
-  cursor: default;
-  background: transparent;
-  border-color: transparent;
-}
-
-.cell-diagonal-mark {
-  color: var(--text-tertiary);
-  font-size: 14px;
-}
-
-.cell-check {
-  color: var(--blue);
-}
-
-.friend-count {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-right: 4px;
-}
-
 /* ===== ACTION BAR ===== */
 .action-bar {
   display: flex;
