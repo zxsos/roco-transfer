@@ -344,6 +344,24 @@
 
         <!-- ===== RIGHT COLUMN: RESULT ===== -->
         <div class="result-column">
+
+          <!-- 空态:右列在生成前是空白的,大屏上整页只有左列一条,像"只占半个屏幕"。
+               这里给一块与左栏等宽的占位,说明右侧会出现什么、怎么开始。 -->
+          <div v-if="!planResult || !planResult.success" class="result-placeholder">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              <path d="M8 21h8"/>
+              <path d="M12 17v4"/>
+            </svg>
+            <p class="ph-title">生成后这里会显示传火方案</p>
+            <p class="ph-sub">左侧添加 {{ people.length >= 2 ? '成员信息后点' : '成员（至少 2 人），点' }}「生成传火方案」</p>
+            <ul class="ph-list">
+              <li>传火链条与每人角色</li>
+              <li>每人应付金额与转账指令</li>
+              <li>非好友相邻的提醒</li>
+            </ul>
+          </div>
+
           <TransitionGroup name="fade" tag="div" class="result-section">
             <template v-if="planResult && planResult.success">
 
@@ -1343,17 +1361,30 @@ body {
   .content-wrapper.has-result .config-column { max-width: 480px; }
 }
 
-/* 宽屏:容器放宽,并把列间距拉开 —— 1320px 在 27" 上两侧留白过多,
-   而两列挤在中间反而不好读。 */
+/* 宽屏:容器随视口放宽,并把列间距拉开 —— 固定 1320px 时,1920 屏上两侧
+   各留 300px、2560 屏上各留 620px,大片留白看着像"只占半个屏幕"。
+   这里用 min(视口 - 边距, 上限) 让它跟着屏走,并再抬一档上限(1600→1760)。
+   上限仍要保留:无限宽的行长会难读(一行超过 ~100 字符),不是越宽越好。 */
 @media (min-width: 1440px) {
   .app-content {
-    max-width: 1560px;
+    max-width: min(calc(100vw - 80px), 1600px);
   }
   .content-wrapper {
     gap: 40px;
   }
   .config-column { max-width: 600px; }
   .content-wrapper.has-result .config-column { max-width: 520px; }
+}
+
+@media (min-width: 1800px) {
+  .app-content {
+    max-width: min(calc(100vw - 120px), 1760px);
+  }
+  .content-wrapper {
+    gap: 48px;
+  }
+  .config-column { max-width: 640px; }
+  .content-wrapper.has-result .config-column { max-width: 560px; }
 }
 
 /* ===== CARD ===== */
@@ -2646,6 +2677,70 @@ body {
 
 .fade-move {
   transition: transform 0.45s var(--ease-out);
+}
+
+/* ===== RESULT PLACEHOLDER =====
+   只在大屏(双列)显示:单列时右列在下方,空态会变成两块"什么都没有"
+   的空白区,反而不如直接接着配置区更紧凑。 */
+.result-placeholder {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .result-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 8px;
+    min-height: 420px;
+    padding: 40px 32px;
+    /* 半透明底 + 毛玻璃:页面有背景图,纯透明会让虚线框里的字和背景糊在一起 */
+    background: var(--surface);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1.5px dashed var(--border-strong);
+    border-radius: var(--radius);
+    color: var(--text-tertiary);
+  }
+
+  .result-placeholder svg {
+    color: var(--text-tertiary);
+    opacity: 0.7;
+    margin-bottom: 6px;
+  }
+
+  .result-placeholder .ph-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .result-placeholder .ph-sub {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    max-width: 320px;
+    line-height: 1.6;
+  }
+
+  /* 列出"生成后能得到什么"——比干说"暂无数据"更能说明这块区域的价值 */
+  .result-placeholder .ph-list {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--separator);
+    list-style: none;
+    font-size: 12.5px;
+    color: var(--text-tertiary);
+    line-height: 2;
+  }
+
+  .result-placeholder .ph-list li::before {
+    content: '·';
+    margin-right: 8px;
+    color: var(--accent);
+    font-weight: 700;
+  }
 }
 
 /* ===== MOBILE ACTION BAR =====
