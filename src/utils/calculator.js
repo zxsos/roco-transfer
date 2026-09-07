@@ -306,7 +306,9 @@ function tryFill(people, friendMap, byId, maxGaps = 0, headId = null) {
         const filler = []
         for (let i = 0; i < g; i++) {
           filler.push({
-            id: -1000 - i,
+            // 字符串 id:真实成员 id 也是字符串(多人合并需要)。用下划线前缀避免与
+            // 随机 hex id 混淆,也避免历史上 -1000-i 的负数形式被当成数字处理。
+            id: '__fill' + i,
             name: '待补成员' + (g > 1 ? i + 1 : ''),
             tier,
             needElf: elf,
