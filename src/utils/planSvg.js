@@ -124,8 +124,10 @@ export function buildPlanSvg(plan) {
   y += 24
 
   const NODE_H = 152
-  const GAP_X = 24
-  const GAP_Y = 30
+  // 间隙既要够连线用(连线长 = GAP_X − 5 − 9 = 16px,箭头 8px),
+// 又要让 4 人能排一行(4×150 + 3×30 = 690 < 694),取 30
+  const GAP_X = 30
+  const GAP_Y = 32
   const MIN_W = 150
   const MAX_W = 210
   const AV_R = 16
@@ -418,7 +420,10 @@ export function buildPlanSvg(plan) {
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" ` +
     `font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',sans-serif">` +
     `<defs>` +
-    `<marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">` +
+    // markerUnits 默认是 strokeWidth —— markerWidth 会**乘以线宽**。
+    // 线宽 2 时 markerWidth=7 实际渲染成 14px,比节点间隙还长,箭头就糊到卡片上了。
+    // 显式设为 userSpaceOnUse,箭头尺寸固定为 9px,不随线宽缩放。
+    `<marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">` +
     `<path d="M0,0 L10,5 L0,10 z" fill="${C.arrow}"/></marker>` +
     defs.join('') +
     `</defs>` +
