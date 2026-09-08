@@ -335,7 +335,7 @@ const nodes = computed(() =>
   flex-direction: column;
   align-items: center;
   /* 高度固定,内容整体居中:名字一行两行都居中,不会顶到边上 */
-  justify-content: center
+  justify-content: center;
   gap: 5px;
   padding: 10px;
   border: 1px solid var(--border);
