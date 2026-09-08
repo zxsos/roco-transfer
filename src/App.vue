@@ -83,6 +83,19 @@
             <span class="room-dot" :class="roomState.status" :title="roomStatusText"></span>
             <span class="room-label">房间码</span>
             <code class="room-code">{{ roomState.code }}</code>
+            <!-- 过期倒计时。数据存在 KV 里 72 小时后自动消失,
+                 不提示的话群里的人某天打开会发现房间凭空没了。 -->
+            <span
+              v-if="roomRemainText"
+              class="room-ttl"
+              :class="{ urgent: roomRemainUrgent, gone: roomRemainGone }"
+              title="房间 72 小时后自动销毁，有人提交数据会重新计时"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>
+              </svg>
+              {{ roomRemainText }}
+            </span>
           </div>
           <div class="room-actions">
             <button class="btn btn-secondary btn-sm" @click="copyRoomLink">
@@ -1068,6 +1081,40 @@ const roomStatusText = computed(() => {
   return s === 'synced' ? '已同步' : s === 'syncing' ? '同步中' : s === 'gone' ? '房间已删除' : s === 'error' ? '同步出错' : '未加入房间'
 })
 
+// ===== 房间过期倒计时 =====
+//
+// 房间存在 KV 里,TTL 72 小时,且**每次写入都会重置**(见 room.js 的 save)。
+// 所以剩余时间 = 72h − (现在 − 最后更新时间),而不是从创建时间起算。
+const ROOM_TTL_MS = 72 * 3600 * 1000
+const nowTs = ref(Date.now())
+let ttlTimer = null
+
+const roomRemainMs = computed(() => {
+  if (!roomState.joined || !roomState.updatedAt) return null
+  const left = roomState.updatedAt + ROOM_TTL_MS - nowTs.value
+  return left > 0 ? left : 0
+})
+
+// roomRemainText 精确到「分」就够:30 秒刷新一次,再细反而让人看着焦虑。
+const roomRemainText = computed(() => {
+  const ms = roomRemainMs.value
+  if (ms == null) return ''
+  if (ms <= 0) return '已过期'
+  const s = Math.floor(ms / 1000)
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d > 0) return `${d} 天 ${h} 小时后过期`
+  if (h > 0) return `${h} 小时 ${m} 分后过期`
+  return `${m} 分后过期`
+})
+
+// 剩不到 6 小时就转橙色提醒:这时候该把方案定下来或导出图片了
+const roomRemainUrgent = computed(
+  () => roomRemainMs.value != null && roomRemainMs.value < 6 * 3600 * 1000,
+)
+const roomRemainGone = computed(() => roomRemainMs.value === 0)
+
 // 交给 room.js 的两个钩子:它不知道 people 的内部结构,只认这两件事。
 // readLocal 导出当前配置,applyRemote 用远端快照覆盖本地。
 room.setRoomHooks({
@@ -1351,6 +1398,10 @@ function loadUsersFromDir() {
 onMounted(async () => {
   loadUsersFromDir()
   room.installVisibilityHook()
+  // 倒计时每 30 秒走一次。房间还有两天多,没必要每秒刷。
+  ttlTimer = setInterval(() => {
+    nowTs.value = Date.now()
+  }, 30000)
   // 分享链接带 ?r=<码>,打开即自动加入
   const code = room.codeFromUrl()
   if (code) {
@@ -1361,6 +1412,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   room.stopPolling()
+  if (ttlTimer) clearInterval(ttlTimer)
 })
 
 // removePerson 删除成员。
@@ -3008,6 +3060,33 @@ body {
   background: var(--fill);
   color: var(--text);
   user-select: all;
+}
+
+/* ===== 房间过期倒计时 ===== */
+.room-ttl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background: var(--fill);
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 剩不到 6 小时:橙色,提醒赶紧定方案/导出图 */
+.room-ttl.urgent {
+  background: rgba(255, 107, 53, 0.12);
+  color: var(--accent);
+}
+
+.room-ttl.gone {
+  background: rgba(255, 59, 48, 0.12);
+  color: var(--red);
 }
 
 /* 状态点:颜色即状态,不占横向空间 */
