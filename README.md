@@ -190,12 +190,13 @@ npx wrangler kv namespace create ROOMS
 > 排查导出图问题时**不要**用第三方 SVG 渲染器（如 resvg）的截图下结论——
 > 它和浏览器的解析行为不一致，会掩盖真实问题。
 
-## 配置文件格式
+## 房间数据格式
+
+页面没有独立的「导入 / 导出配置」入口——那份功能在房间同步做好后就移除了，
+配置只通过房间流转。下面是 KV 里存的结构，也就是房间 API 返回的 `config` 字段：
 
 ```json
 {
-  "version": 1,
-  "exportedAt": "2026-05-21T12:00:00.000Z",
   "elfName1": "新月鹭",
   "elfName2": "热团团",
   "elfImg1": "https://…/elf1.webp",
@@ -218,10 +219,21 @@ npx wrangler kv namespace create ROOMS
 | `elfName1/2`、`elfImg1/2` | 精灵名称与介绍图链接（介绍图只接受 http(s) 外链） |
 | `maxGaps` | 最多留几个空位，`0` = 只给确定方案；`1` / `2` 会额外计算「再拉 N 人能省多少」 |
 | `userId` | 可选，自定义 ID 或备注 |
-| `avatar` | 可选，`data:image/...` 图片 data URL；导入时只接受合法图片 data URL |
+| `avatar` | 可选，`data:image/...` 图片 data URL |
 | `friendships` | 双向好友对 `[idA, idB]` |
 
-导入时会做结构校验与 id 合法性检查，非法字段被忽略而非中断流程。
+服务端（`functions/api/room.js`）会做结构校验与收敛：非法字段被忽略而非中断流程，
+头像只接受 png/jpeg/webp 的 data URL 且限 64KB，`headPrice` 超过官方价会被置为 `null`。
+
+直接用 API 也可以读写房间：
+
+```bash
+# 拉取
+curl https://rocom-pass-the-torch.pages.dev/api/room?id=<房间码>
+
+# 销毁
+curl -X DELETE https://rocom-pass-the-torch.pages.dev/api/room?id=<房间码>
+```
 
 ## 许可
 
