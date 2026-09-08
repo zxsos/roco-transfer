@@ -1709,6 +1709,9 @@ function svgToPng(svg, width, height, scale = 2) {
         canvas.width = Math.round(width * scale)
         canvas.height = Math.round(height * scale)
         const ctx = canvas.getContext('2d')
+        // 显式填白底:某些浏览器 canvas 默认透明,保存后会变成黑/暗色背景
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
         ctx.scale(scale, scale)
         ctx.drawImage(img, 0, 0, width, height)
         resolve(canvas.toDataURL('image/png'))
@@ -1720,7 +1723,7 @@ function svgToPng(svg, width, height, scale = 2) {
     }
     img.onerror = () => {
       URL.revokeObjectURL(url)
-      reject(new Error('SVG 渲染失败'))
+      reject(new Error('SVG 加载失败(SVG 可能无效或浏览器不支持)'))
     }
     img.src = url
   })
@@ -1752,7 +1755,7 @@ async function exportAllCards() {
     }
   } catch (e) {
     console.error('导出失败:', e)
-    errorMsg.value = '导出图片失败，请重试'
+    errorMsg.value = '导出图片失败：' + (e && e.message ? e.message : String(e))
   } finally {
     exporting.value = false
   }
