@@ -245,26 +245,36 @@ function greedyMatch(slots, sorted, friendMap, elfUnder) {
 // actualPassPrice 车头自购通行证实际花的钱。
 //
 // 车头不一定从官方渠道买(代充、活动价、手上有折扣等),所以允许填一个自购价;
+// 但**上限就是官方价** —— 比官方价还贵的话本来就该直接在官方买,填进来只会让
+// 账上多出一笔没必要的钱(手滑把 128 敲成 1280 尤其容易,而它会摊到全团头上)。
 // 没填或填了非法值一律退回官方价 —— 宁可少算,也不能因为脏数据算出负成本。
 function actualPassPrice(p, price) {
   const v = Number(p.headPrice)
-  return Number.isFinite(v) && v > 0 ? v : price.pass
+  return Number.isFinite(v) && v > 0 && v <= price.pass ? v : price.pass
 }
 
 // computeCost 根自购通行证、其余人付副券。
+//
+// 返回两个总额:
+//   total   实际总支付(车头按他填的自购价)
+//   nominal 名义总支付(车头按官方价)
+// 两者之差就是车头自购渠道带来的盈亏,分摊时**只由车头本人承担**(见 splitShares)。
 function computeCost(people, built) {
   let total = 0
+  let nominal = 0
   const payOf = new Map()
   for (const p of people) {
     const isRoot = built.depthOf.get(p.id) === 0
     const price = PRICE[p.tier] || PRICE.normal
+    const official = isRoot ? price.pass : price.coupon
     // 自购价只对「车头本人且是自购源头」生效:普通源头没有这个入口,
     // 非车头的人即使带着脏数据也不该享受。
-    const amt = isRoot ? (p.isHead ? actualPassPrice(p, price) : price.pass) : price.coupon
+    const amt = isRoot && p.isHead ? actualPassPrice(p, price) : official
     payOf.set(p.id, amt)
     total += amt
+    nominal += official
   }
-  return { total, payOf }
+  return { total, nominal, payOf }
 }
 
 // splitShares 按「等额优惠」把总支出摊回每个人:每人净支出 = 自己档次原价 − 人均节省额。
@@ -276,7 +286,7 @@ function computeCost(people, built) {
 // 全员同档次时本函数退化成平摊,与旧行为一致。
 //
 // 取整到「分」并做余额补差:保证 sum(shares) 严格等于 total,不出现对不上账的尾差。
-function splitShares(people, total) {
+function splitShares(people, total, headId = null, headDelta = 0) {
   const n = people.length
   const soloCents = people.map((p) => Math.round((PRICE[p.tier] || PRICE.normal).pass * 100))
   const soloTotalCents = soloCents.reduce((s, v) => s + v, 0)
@@ -294,6 +304,47 @@ function splitShares(people, total) {
   // rest < 0 只在极端浮点下出现,从小数部分最小的份额里扣回,保持总额不变
   for (let k = order.length - 1; rest < 0; k--, rest++) {
     cents[order[((k % order.length) + order.length) % order.length].i] -= 1
+  }
+
+  // 车头自购渠道的盈亏**只算在车头自己头上**:
+  // 他找到便宜渠道不该让全团跟着沾光,买贵了更不该让别人替他背锅 ——
+  // 否则填个 9999 的自购价,总支出会超过全员自购,所有人都被他拖下水。
+  // 此时 sum(shares) = nominal + delta = 实际总支付,账目仍闭合。
+  if (headId != null && headDelta) {
+    const i = people.findIndex((p) => p.id === headId)
+    if (i >= 0) cents[i] += Math.round(headDelta * 100)
+  }
+
+  // 净支出不能为负。
+  //
+  // 车头的份额是「自购价 − 人均节省额」,自购价一旦低于人均节省(常见 20~48 元)
+  // 就会翻负 —— 等于参加拼团还倒收钱,而且会连带出现「省的钱比原价还多」。
+  // 真金白银的场景不能有负数:截断到 0,再从净支出为正的人身上按额度扣回
+  // (他们相应少付),保证 sum(shares) 仍严格等于总支付。
+  const negSum = cents.reduce((s, v) => s + (v < 0 ? -v : 0), 0)
+  if (negSum > 0) {
+    for (let i = 0; i < cents.length; i++) if (cents[i] < 0) cents[i] = 0
+    const pool = cents.map((v, i) => ({ v, i })).filter((x) => x.v > 0)
+    const poolSum = pool.reduce((s, x) => s + x.v, 0)
+    if (poolSum > 0) {
+      const owed = Math.min(negSum, poolSum)
+      let left = owed
+      for (const x of pool) {
+        const take = Math.min(x.v, Math.floor((owed * x.v) / poolSum))
+        cents[x.i] -= take
+        left -= take
+      }
+      // 整除剩下的零星几分,从当前份额最大的人那里逐分扣
+      while (left > 0) {
+        let pick = -1
+        for (const x of pool) {
+          if (cents[x.i] > 0 && (pick === -1 || cents[x.i] > cents[pick])) pick = x.i
+        }
+        if (pick === -1) break
+        cents[pick] -= 1
+        left -= 1
+      }
+    }
   }
 
   const shareOf = new Map()
@@ -397,7 +448,14 @@ function buildResultCards(people, best, byId, friendMap) {
   // perPerson 是「实际人均」(总支出 / 人数),只作参考:各档次净支出不同,
   // 真正该付多少看每张卡的 share(见 splitShares)。
   const perPerson = Math.round((best.cost.total / n) * 100) / 100
-  const { shareOf, savingPerPerson } = splitShares(people, best.cost.total)
+  // 分摊基准是**名义总额**(车头按官方价),车头自购价的差额单独算给他本人
+  const headPerson = people.find((p) => p.isHead)
+  const { shareOf, savingPerPerson } = splitShares(
+    people,
+    best.cost.nominal,
+    headPerson ? headPerson.id : null,
+    best.cost.total - best.cost.nominal,
+  )
 
   const childrenOf = new Map()
   for (const [child, parent] of parentOf) {
@@ -448,30 +506,33 @@ function buildResultCards(people, best, byId, friendMap) {
       })
     }
 
-    // 转账:与车头(主源头)统一结算 —— 车头垫付最多,其余人把
-    // 「应摊 − 实付」的差额转给车头;差额为负表示车头要退钱给他
-    // (例如另一个自购源头,实付已超过自己应摊的份额)。
+    // 结算:与车头(主源头)统一结清 —— 实付比应摊少的,把差额转给车头;
+    // 实付比应摊多的(车头本人,或另一个自购源头),由车头退回去。
+    //
+    // **车头本人也要列这一行**:他的明细只有「自购 128」,不列收款的话
+    // 128 和净支出 107 对不上,同样看着像算错。
     const transfers = []
-    let settle = 0
+    const settle = Math.round((share - paid) * 100) / 100
+    const rootPerson = byId.get(mainRootId)
     if (!isMainRoot) {
-      settle = Math.round((share - paid) * 100) / 100
-      const rootPerson = byId.get(mainRootId)
       transfers.push({
         direction: settle >= 0 ? 'out' : 'in',
         to: rootPerson ? rootPerson.name : '车头',
         amount: Math.abs(settle),
         reason: `应摊 ${share} 元 - 实付 ${paid} 元`,
       })
-      if (settle !== 0) {
-        items.push({
-          label:
-            settle > 0
-              ? `转账给 ${rootPerson ? rootPerson.name : '车头'}（结算差额）`
+    }
+    if (settle !== 0) {
+      items.push({
+        label:
+          settle > 0
+            ? `转账给 ${rootPerson ? rootPerson.name : '车头'}（结算差额）`
+            : isMainRoot
+              ? '收到其他人转账（结算差额）'
               : `收 ${rootPerson ? rootPerson.name : '车头'} 转账（结算差额）`,
-          amount: Math.abs(settle),
-          type: settle > 0 ? 'transfer-out' : 'transfer-in',
-        })
-      }
+        amount: Math.abs(settle),
+        type: settle > 0 ? 'transfer-out' : 'transfer-in',
+      })
     }
 
     return {
@@ -490,6 +551,10 @@ function buildResultCards(people, best, byId, friendMap) {
       // share 是这个人最终该承担的净支出(等额优惠分摊后);
       // netExpense 沿用旧字段名,语义从「人均额」变为「自己那份净支出」。
       share,
+      // soloPrice 这个人档次的自购原价。省的钱是**跟它**比的:
+      // 原价 68 − 省 21 = 净支出 47。卡上把三者一起列出来,否则
+      // 「实付 40」和「省 21」并排会让人误以为 40 + 21 该等于原价。
+      soloPrice: price.pass,
       saving: Math.round((price.pass - share) * 100) / 100,
       netExpense: share,
       items,
@@ -604,8 +669,11 @@ export function generatePlan(people, names, friendMatrix, opts = {}) {
         `补齐后 ${nAll} 人成链`,
       soloTotal,
       soloAvg: Math.round((soloTotal / nReal) * 100) / 100,
+      // cards 必须挂上去:结果区与树状图都读 planResult.cards。
+      // 这里原本是 `...cards`(展开数组 → 0/1/2... 数字键),根本没有 cards 字段,
+      // 补人方案下整棵树会读不到数据。resultCards 是旧字段,一并保留。
+      cards,
       resultCards: cards,
-      ...cards,
       collectBill: buildCollectBill(all, cards, gBest, allById),
       total: gBest.cost.total,
       avg: Math.round((gBest.cost.total / nAll) * 100) / 100,

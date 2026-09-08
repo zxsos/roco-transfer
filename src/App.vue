@@ -477,13 +477,14 @@
                         class="input head-price-input"
                         type="number"
                         min="0"
+                        :max="PRICE.premium.pass"
                         step="1"
                         placeholder="128"
                         inputmode="decimal"
                       />
                       <span class="head-price-unit">元</span>
                     </div>
-                    <p class="head-price-hint">非官方渠道购买时填实际花费；留空按官方价计</p>
+                    <p class="head-price-hint">{{ headPriceHint(person) }}</p>
                   </div>
 
                   <!-- 好友勾选:只列**前面已添加**的人。
@@ -756,37 +757,9 @@
                     </span>
                   </div>
 
-                  <div
-                    v-for="(lv, li) in chainLevels"
-                    :key="'lv-' + li"
-                    class="chain-level"
-                  >
-                    <div class="chain-level-tag">{{ li === 0 ? '自购' : '第' + li + '层' }}</div>
-                    <div class="chain-flow">
-                      <template v-for="(item, idx) in lv" :key="item.person.id">
-                        <div class="chain-node">
-                          <div
-                            class="chain-avatar"
-                            :class="[li === 0 ? 'head' : item.children.length ? 'mid' : 'tail', { 'has-image': item.person.avatar }]"
-                            :style="item.person.avatar ? { backgroundImage: `url(${item.person.avatar})` } : null"
-                          >
-                            <span v-if="!item.person.avatar">{{ initialOf(item.person.name) || '?' }}</span>
-                          </div>
-                          <div class="chain-name">{{ item.person.name }}</div>
-                          <div v-if="item.person.userId" class="chain-user-id">#{{ item.person.userId }}</div>
-                          <div class="chain-elf">
-                            {{ getElfName(item.elf) }}
-                            <span class="chain-tier">{{ item.tier === 'premium' ? '豪华' : '普通' }}</span>
-                          </div>
-                        </div>
-                        <div v-if="idx < lv.length - 1" class="chain-arrow chain-arrow-side">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="5" y1="12" x2="19" y2="12"/>
-                          </svg>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
+                  <!-- 树状图:每条边 = 一次副券赠送。豪华版能送 2 张,同一层可能
+                       有两个人,分层列表看不出谁是谁的上家,所以按父子关系布点。 -->
+                  <TransferTree :cards="planResult.cards" />
                 </section>
 
                 <!-- 确定方案前的待办
@@ -870,7 +843,7 @@
                   <div class="net-summary">
                     <span class="net-summary-label">
                       净支出
-                      <span class="net-summary-sub">实付 {{ card.paid }} 元 · 省 {{ card.saving }} 元</span>
+                      <span class="net-summary-sub">原价 {{ card.soloPrice }} 元，省 {{ card.saving }} 元</span>
                     </span>
                     <span class="net-summary-value">{{ card.netExpense }} 元</span>
                   </div>
@@ -952,6 +925,7 @@ import html2canvas from 'html2canvas'
 import * as room from './room.js'
 import ElfFigure from './components/ElfFigure.vue'
 import FigureViewer from './components/FigureViewer.vue'
+import TransferTree from './components/TransferTree.vue'
 
 // 两个精灵的介绍图。
 //
@@ -1098,7 +1072,7 @@ room.setRoomHooks({
       needElf: p.needElf,
       isHead: !!p.isHead,
       // 自购价:只在该成员是车头时才有意义,一并同步(别人看到的是同一个车头)
-      headPrice: normalizeHeadPrice(p.headPrice),
+      headPrice: normalizeHeadPrice(p.headPrice, p.tier),
     })),
     friendships: buildFriendMatrix(),
   }),
@@ -1193,21 +1167,6 @@ const themeToggleLabel = computed(() => {
 })
 
 // ===== 计算属性 =====
-// chainLevels 把结果按层分组:第 0 层是自购的源头,其余各层由上一层赠送激活。
-// 豪华版能送 2 张,所以同一层可能有多个人 —— 这正是"树"和"链"的区别,
-// 用一条带箭头的直线画不出来(一个父节点会有两个分支)。
-const chainLevels = computed(() => {
-  const r = planResult.value
-  if (!r || !r.cards) return []
-  const byDepth = new Map()
-  for (const c of r.cards) {
-    const d = c.depth || 0
-    if (!byDepth.has(d)) byDepth.set(d, [])
-    byDepth.get(d).push(c)
-  }
-  return [...byDepth.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v)
-})
-
 // tierSummary 档次已是每人独立,导出图徽章改成显示人数分布。
 const tierSummary = computed(() => {
   const list = people.filter((p) => p.name.trim())
@@ -1268,12 +1227,30 @@ function toggleFriendCell(idA, idB) {
 
 // ===== 人物管理 =====
 
+// headPriceHint 把自购价的后果写明:渠道差价**只算在车头自己头上**,
+// 别人既不会跟着沾光也不会替他背锅。不写清楚的话,填便宜了别人以为自己也能少付,
+// 填贵了别人不知道自己不受影响 —— 两种情况都会吵起来。
+function headPriceHint(p) {
+  const official = PRICE.premium.pass // 车头强制豪华
+  const base = `非官方渠道购买时填实际花费；不能高于官方价 ${official} 元`
+  if (p.headPrice === '' || p.headPrice == null) return base + '，留空按官方价计'
+  const v = Number(p.headPrice)
+  if (!Number.isFinite(v) || v <= 0) return base + '，留空按官方价计'
+  if (v > official) return `已超过官方价 ${official} 元，将按官方价计`
+  const d = Math.round((official - v) * 100) / 100
+  return d > 0 ? `按 ${v} 元计，比官方价省 ${d} 元` : '与官方价相同'
+}
+
 // normalizeHeadPrice 收敛车头自购价:合法则返回数字字符串,否则返回空串
-// (= 按官方价)。上限 10000 只为挡住手滑多敲几个 0,不是业务上限。
-function normalizeHeadPrice(v) {
+// (= 按官方价)。
+//
+// 上限 = 该档次的官方价,与 calculator 侧 actualPassPrice 一致:
+// 比官方价还贵的话本来就该直接在官方买,填进来只会让账上多一笔没必要的钱。
+function normalizeHeadPrice(v, tier) {
   if (v === '' || v == null) return ''
   const n = Number(v)
-  if (!Number.isFinite(n) || n <= 0 || n > 10000) return ''
+  const max = tier === 'premium' ? PRICE.premium.pass : PRICE.normal.pass
+  if (!Number.isFinite(n) || n <= 0 || n > max) return ''
   return String(Math.round(n * 100) / 100)
 }
 
@@ -1421,13 +1398,6 @@ function onHeadToggle(person) {
     // 不当车头了,自购价就失去意义;留着会在下次被设为车头时悄悄生效
     person.headPrice = ''
   }
-}
-
-// ===== 精灵名称 =====
-function getElfName(elf) {
-  if (elf === 'elf1') return elfName1.value || '新月鹭'
-  if (elf === 'elf2') return elfName2.value || '热团团'
-  return '都行'
 }
 
 // ===== 重置 =====
@@ -1647,16 +1617,18 @@ function applyConfig(config, opts = {}) {
       oldToNew.set(String(p.id ?? ''), pid)
       const needElf = ['elf1', 'elf2', 'any'].includes(p.needElf) ? p.needElf : 'elf1'
       const avatar = typeof p.avatar === 'string' && p.avatar.startsWith('data:image/') ? p.avatar : ''
+      // 兼容老配置(没有 tier 字段):按普通处理。
+      // 必须叫 pTier:外层有个全局的 tier ref,直接写 tier 会拿到 ref 对象本身。
+      const pTier = p.tier === 'premium' ? 'premium' : 'normal'
       people.push({
         id: pid,
         name: typeof p.name === 'string' ? p.name : '',
         userId: typeof p.userId === 'string' ? p.userId : '',
         avatar,
         needElf,
-        // 兼容老配置(没有 tier 字段):按普通处理
-        tier: p.tier === 'premium' ? 'premium' : 'normal',
+        tier: pTier,
         isHead: !!p.isHead,
-        headPrice: normalizeHeadPrice(p.headPrice),
+        headPrice: normalizeHeadPrice(p.headPrice, pTier),
         // 已填完的默认折叠(预置成员/房间同步回来的都是这种情况);
         // 房间同步时会被 applyRemote 的 prev 覆盖成本地真实状态。
         collapsed: !!name,
