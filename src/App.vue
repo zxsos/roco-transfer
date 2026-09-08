@@ -1620,9 +1620,13 @@ function applyConfig(config, opts = {}) {
       // 兼容老配置(没有 tier 字段):按普通处理。
       // 必须叫 pTier:外层有个全局的 tier ref,直接写 tier 会拿到 ref 对象本身。
       const pTier = p.tier === 'premium' ? 'premium' : 'normal'
+      // 同样必须接成局部量:直接写 `name` 会一路找到全局的 window.name(空串),
+      // !!'' === false → 房间同步/导入回来的成员全部展开。这里要的是「填过名字
+      // 就是填完了,默认折叠」。
+      const pName = typeof p.name === 'string' ? p.name : ''
       people.push({
         id: pid,
-        name: typeof p.name === 'string' ? p.name : '',
+        name: pName,
         userId: typeof p.userId === 'string' ? p.userId : '',
         avatar,
         needElf,
@@ -1630,8 +1634,9 @@ function applyConfig(config, opts = {}) {
         isHead: !!p.isHead,
         headPrice: normalizeHeadPrice(p.headPrice, pTier),
         // 已填完的默认折叠(预置成员/房间同步回来的都是这种情况);
+        // 没名字的空卡片保持展开待填。
         // 房间同步时会被 applyRemote 的 prev 覆盖成本地真实状态。
-        collapsed: !!name,
+        collapsed: !!pName.trim(),
       })
     }
   }
