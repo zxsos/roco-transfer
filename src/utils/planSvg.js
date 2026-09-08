@@ -123,29 +123,109 @@ export function buildPlanSvg(plan) {
   )
   y += 24
 
-  const NODE_H = 140
+  const NODE_H = 152
   const GAP_X = 24
   const GAP_Y = 30
   const MIN_W = 150
   const MAX_W = 210
-  const AV_R = 14
+  const AV_R = 16
+
+  // 排列方式要和页面预览(TransferTree)一致:
+  //   细长的链(层数 > 叶子数)横着画,根在左;
+  //   分叉多时竖着画,根在上,父节点居中于自己的子树。
+  // 以前这里一律按「每行 N 个」网格换行,和预览的形状对不上。
+  const childrenOf = new Map()
+  for (const c of cards) {
+    if (c.parentId == null) continue
+    if (!childrenOf.has(c.parentId)) childrenOf.set(c.parentId, [])
+    childrenOf.get(c.parentId).push(c.person.id)
+  }
+  const roots = cards.filter((c) => c.parentId == null).map((c) => c.person.id)
+  const maxDepth = Math.max(...cards.map((c) => c.depth || 0)) + 1
+  const leafCount = cards.filter((c) => !(childrenOf.get(c.person.id) || []).length).length
+  const horizontal = maxDepth > leafCount
 
   const n = ordered.length
-  const fit = (count) => (INNER - GAP_X * (count - 1)) / count
-  let perRow = n
-  let nodeW = Math.min(MAX_W, fit(n))
-  if (nodeW < MIN_W) {
-    perRow = Math.max(1, Math.floor((INNER + GAP_X) / (MIN_W + GAP_X)))
-    nodeW = Math.min(MAX_W, fit(perRow))
+  let nodeW = MAX_W
+  let rows = []
+  let subW = null
+
+  // 纵向时子树总宽 = 所有叶子并排,需要先算出来才知道节点能不能放进 750
+  const calcSub = (w) => {
+    const m = new Map()
+    const walk = (id) => {
+      const kids = childrenOf.get(id) || []
+      if (!kids.length) {
+        m.set(id, w)
+        return w
+      }
+      const total = kids.map(walk).reduce((a, b) => a + b, 0) + GAP_X * (kids.length - 1)
+      const v = Math.max(w, total)
+      m.set(id, v)
+      return v
+    }
+    let total = 0
+    for (const r of roots) total += walk(r) + GAP_X
+    return { total: total - GAP_X, map: m }
   }
 
-  const rows = []
-  for (let i = 0; i < n; i += perRow) rows.push(ordered.slice(i, i + perRow))
+  if (horizontal) {
+    // 横向:一行尽量多放,放不下就换行(预览里靠页面滚动,这里宽度固定只能换行)
+    const fit = (count) => (INNER - GAP_X * (count - 1)) / count
+    let perRow = n
+    nodeW = Math.min(MAX_W, fit(n))
+    if (nodeW < MIN_W) {
+      perRow = Math.max(1, Math.floor((INNER + GAP_X) / (MIN_W + GAP_X)))
+      nodeW = Math.min(MAX_W, fit(perRow))
+    }
+    for (let i = 0; i < n; i += perRow) rows.push(ordered.slice(i, i + perRow))
+  } else {
+    // 纵向:从 MAX_W 往下找第一个能放进画布的宽度
+    let found = null
+    for (let w = MAX_W; w >= MIN_W; w -= 4) {
+      const r = calcSub(w)
+      if (r.total <= INNER) {
+        found = r
+        nodeW = w
+        break
+      }
+    }
+    if (!found) {
+      nodeW = MIN_W
+      found = calcSub(MIN_W)
+    }
+    subW = found.map
+  }
+
   const rowX = (ri) => {
     const rowW = rows[ri].length * nodeW + GAP_X * (rows[ri].length - 1)
     return PAD + (INNER - rowW) / 2
   }
+
+  // 纵向:递归放置,父节点在自己子树范围内居中
+  const posMap = new Map()
+  const place = (id, left, depth) => {
+    const w = subW.get(id)
+    posMap.set(id, { x: left + (w - nodeW) / 2, y: y + depth * (NODE_H + GAP_Y) })
+    let cursor = left
+    for (const k of childrenOf.get(id) || []) {
+      place(k, cursor, depth + 1)
+      cursor += subW.get(k) + GAP_X
+    }
+  }
+  if (!horizontal) {
+    // 整棵树水平居中(横向分支用不到 subW,别在这里碰它)
+    const treeW = roots.reduce((s, r) => s + subW.get(r) + GAP_X, 0) - GAP_X
+    const treeLeft = PAD + (INNER - treeW) / 2
+    let cursor = treeLeft
+    for (const r of roots) {
+      place(r, cursor, 0)
+      cursor += subW.get(r) + GAP_X
+    }
+  }
+
   const posOf = (card) => {
+    if (!horizontal) return posMap.get(card.person.id) || null
     for (let ri = 0; ri < rows.length; ri++) {
       const ci = rows[ri].indexOf(card)
       if (ci >= 0) return { x: rowX(ri) + ci * (nodeW + GAP_X), y: y + ri * (NODE_H + GAP_Y) }
@@ -166,31 +246,27 @@ export function buildPlanSvg(plan) {
     )
     out.push(`<rect x="${p.x}" y="${p.y}" width="4.5" height="${NODE_H}" rx="2" fill="${role}"/>`)
 
-    // 头部:头像 + 名字 + 角色标签
-    const cx = left + AV_R
-    const cy = p.y + 24
+    // 头部:头像居中在上、名字与精灵居中其下 —— 与页面预览的节点形状一致
+    const cx = p.x + nodeW / 2
+    const cy = p.y + 26
     drawAvatar(out, defs, c.person, cx, cy, AV_R, role, 'n')
-    const tx = cx + AV_R + 10
-    const nameMax = Math.max(3, Math.floor((right - tx - 46) / 13))
-    const shown = cut(c.person.name, nameMax)
+    const nameMax = Math.max(3, Math.floor((nodeW - 26) / 13.5))
     out.push(
-      `<text x="${tx}" y="${cy + 1}" font-size="13.5" font-weight="700" fill="${C.title}">${esc(shown)}</text>`,
+      `<text x="${cx}" y="${p.y + 56}" font-size="13.5" font-weight="700" fill="${C.title}" text-anchor="middle">${esc(cut(c.person.name, nameMax))}</text>`,
     )
-    // 角色标签:名字右侧
-    const tagW = c.role.length * 11 + 12
-    const tagX = tx + shown.length * 13.5 + 6
-    if (tagX + tagW <= right) {
-      out.push(`<rect x="${tagX}" y="${cy - 12}" width="${tagW}" height="17" rx="8.5" fill="${role}" opacity="0.15"/>`)
-      out.push(
-        `<text x="${tagX + tagW / 2}" y="${cy + 0.5}" font-size="10" font-weight="700" fill="${role}" text-anchor="middle">${esc(c.role)}</text>`,
-      )
-    }
     out.push(
-      `<text x="${tx}" y="${cy + 16}" font-size="10.5" fill="${C.sub}">${tierText(c.tier)} · ${esc(c.myElfName)}</text>`,
+      `<text x="${cx}" y="${p.y + 72}" font-size="10.5" fill="${C.sub}" text-anchor="middle">${tierText(c.tier)} · ${esc(cut(c.myElfName, Math.max(4, Math.floor((nodeW - 26) / 11))))}</text>`,
+    )
+    // 角色标签放右上角,不干扰居中的名字
+    const tagW = c.role.length * 11 + 12
+    const tagX = right - tagW
+    out.push(`<rect x="${tagX}" y="${p.y + 10}" width="${tagW}" height="17" rx="8.5" fill="${role}" opacity="0.15"/>`)
+    out.push(
+      `<text x="${tagX + tagW / 2}" y="${p.y + 22}" font-size="10" font-weight="700" fill="${role}" text-anchor="middle">${esc(c.role)}</text>`,
     )
 
     // 分隔
-    const sep1 = p.y + 46
+    const sep1 = p.y + 82
     out.push(`<line x1="${left}" y1="${sep1}" x2="${right}" y2="${sep1}" stroke="${C.line}" stroke-width="0.8"/>`)
 
     // 实付行
@@ -222,7 +298,7 @@ export function buildPlanSvg(plan) {
     }
 
     // 分隔
-    const sep2 = p.y + 88
+    const sep2 = p.y + 124
     out.push(`<line x1="${left}" y1="${sep2}" x2="${right}" y2="${sep2}" stroke="${C.line}" stroke-width="0.8"/>`)
 
     // 净支出 + 省
@@ -261,7 +337,9 @@ export function buildPlanSvg(plan) {
     }
   }
 
-  y += rows.length * NODE_H + (rows.length - 1) * GAP_Y + 22
+  // 纵向时用层数、横向时用行数来推进 y
+  const treeRows = horizontal ? rows.length : maxDepth
+  y += treeRows * NODE_H + (treeRows - 1) * GAP_Y + 22
 
   // ===== 收款汇总(一行,不重复列每个人) =====
   const cb = plan.collectBill
