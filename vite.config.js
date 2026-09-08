@@ -14,4 +14,14 @@ export default defineConfig({
     // 写 'cnb.run' 只精确匹配自身,匹配不到 xxx-5173.cnb.run。
     allowedHosts: ['.cnb.run', '.cnb.cool'],
   },
+  build: {
+    rollupOptions: {
+      // verify.html 是导出图的对照验证页(内联 SVG / img / canvas 三种渲染对比),
+      // 只在排查渲染问题时用,和主入口一起打包
+      input: {
+        main: 'index.html',
+        verify: 'verify.html',
+      },
+    },
+  },
 })
