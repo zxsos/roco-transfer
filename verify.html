@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>导出图验证</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #f5f5f7;
+      font: 14px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .hint { color: #888; font-size: 12px; margin-bottom: 14px; }
+    .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    button {
+      padding: 7px 14px; border: 1px solid #d0d0d5; border-radius: 8px;
+      background: #fff; cursor: pointer; font-size: 13px;
+    }
+    button.primary { background: #ff6b35; color: #fff; border-color: #ff6b35; }
+    textarea {
+      width: 100%; height: 110px; font: 12px/1.5 monospace;
+      padding: 8px; border: 1px solid #d0d0d5; border-radius: 8px; margin-bottom: 12px;
+    }
+    .cols { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+    .col {
+      flex: 1 1 320px; min-width: 300px; background: #fff;
+      border-radius: 12px; padding: 12px;
+    }
+    .col h2 { font-size: 13px; margin: 0 0 8px; color: #333; }
+    .col .sub { font-size: 11px; color: #999; margin: -6px 0 8px; }
+    .col img, .col svg, .col .inline {
+      width: 100%; display: block; border: 1px solid #eee; border-radius: 8px;
+    }
+    .sec {
+      font-size: 14px; margin: 18px 0 8px; padding-left: 9px;
+      border-left: 3px solid #ff6b35;
+    }
+    .info {
+      margin-bottom: 6px; padding: 12px 14px; background: #fffbe8;
+      border: 1px solid #ffe08a; border-radius: 10px;
+      font: 12.5px/1.8 monospace; white-space: pre-wrap;
+      max-height: 340px; overflow: auto;
+    }
+    .info.error { background: #fff0f0; border-color: #ffb3b3; }
+    .err { color: #d00; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>导出图验证</h1>
+  <p class="hint">
+    三种渲染方式并排对比。如果「①内联 SVG」正常而「③canvas PNG」箭头横穿，
+    问题在 SVG → canvas 这一步；如果 ①②③ 都横穿，问题在 SVG 本身。
+  </p>
+
+  <div class="bar">
+    <button data-preset="4">4 人链</button>
+    <button data-preset="8">8 人分叉</button>
+    <button data-preset="12">12 人长链</button>
+    <button data-preset="av">4 人 + 头像</button>
+    <button data-preset="head">4 人 + 车头自购价</button>
+    <button class="primary" id="gen">生成</button>
+  </div>
+
+  <textarea id="data" spellcheck="false">[
+  { "id": "a", "name": "菠菜",   "tier": "normal",  "needElf": "elf2", "isHead": false },
+  { "id": "b", "name": "星河",   "tier": "normal",  "needElf": "elf1", "isHead": false },
+  { "id": "c", "name": "鳕鱼条", "tier": "premium", "needElf": "elf2", "isHead": false },
+  { "id": "d", "name": "可惜夜", "tier": "normal",  "needElf": "elf1", "isHead": false }
+]</textarea>
+
+  <h2 class="sec">诊断信息（重点看这里）</h2>
+  <div class="info" id="info">生成中…</div>
+
+  <h2 class="sec">三种渲染对比</h2>
+  <div class="cols">
+    <div class="col">
+      <h2>① 内联 SVG</h2>
+      <p class="sub">浏览器直接渲染 SVG 节点</p>
+      <div class="inline" id="c1"></div>
+    </div>
+    <div class="col">
+      <h2>② &lt;img&gt; 加载 SVG</h2>
+      <p class="sub">data URL 方式</p>
+      <img id="c2" alt="" />
+    </div>
+    <div class="col">
+      <h2>③ canvas → PNG</h2>
+      <p class="sub">实际导出走的流程</p>
+      <img id="c3" alt="" />
+    </div>
+  </div>
+
+  <script>
+    // 先把任何 JS 错误显示出来,避免页面一片空白无从下手
+    window.addEventListener('error', (e) => {
+      const el = document.getElementById('info')
+      if (el) {
+        el.className = 'info error'
+        el.textContent = 'JS 错误: ' + (e.message || e) +
+          (e.filename ? '\n' + e.filename + ':' + e.lineno : '')
+      }
+    })
+    window.addEventListener('unhandledrejection', (e) => {
+      const el = document.getElementById('info')
+      if (el) {
+        el.className = 'info error'
+        el.textContent = 'Promise 未捕获: ' + (e.reason && e.reason.message || e.reason)
+      }
+    })
+  </script>
+
+  <script type="module">
+    import { generatePlan } from '/src/utils/calculator.js'
+    import { buildPlanSvg } from '/src/utils/planSvg.js'
+
+    // 一张 32×32 的橙色 PNG,模拟真实头像
+    const AVATAR =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAOUlEQVR42u3NMQ0AMAgAsPk/GjLY' +
+      'CmxJKdhOcpJNSWb7zjMzMzMzMzMzMzMzMzMzMzMzMzMzMzP7bFwBFR4BT4m3NswAAAAASUVORK5CYII='
+
+    const PRESETS = {
+      4: [
+        { id: 'a', name: '菠菜', tier: 'normal', needElf: 'elf2', isHead: false },
+        { id: 'b', name: '星河', tier: 'normal', needElf: 'elf1', isHead: false },
+        { id: 'c', name: '鳕鱼条', tier: 'premium', needElf: 'elf2', isHead: false },
+        { id: 'd', name: '可惜夜', tier: 'normal', needElf: 'elf1', isHead: false },
+      ],
+      8: [
+        ...Array.from({ length: 4 }, (_, i) => ({
+          id: 'p' + i, name: '豪华' + i, tier: 'premium',
+          needElf: i % 2 === 0 ? 'elf1' : 'elf2', isHead: false,
+        })),
+        ...Array.from({ length: 4 }, (_, i) => ({
+          id: 'n' + i, name: '普通' + i, tier: 'normal',
+          needElf: i % 2 === 0 ? 'elf2' : 'elf1', isHead: false,
+        })),
+      ],
+      12: [
+        { id: 'h', name: '豪华甲', tier: 'premium', needElf: 'elf1', isHead: false },
+        ...Array.from({ length: 11 }, (_, i) => ({
+          id: 'n' + i, name: '普通' + i, tier: 'normal',
+          needElf: i % 2 === 0 ? 'elf2' : 'elf1', isHead: false,
+        })),
+      ],
+      // 头像:SVG 里会多出 <image href="data:..."> 元素
+      av: [
+        { id: 'a', name: '菠菜', tier: 'normal', needElf: 'elf2', isHead: false,
+          avatar: AVATAR },
+        { id: 'b', name: '星河', tier: 'normal', needElf: 'elf1', isHead: false,
+          avatar: AVATAR },
+        { id: 'c', name: '鳕鱼条', tier: 'premium', needElf: 'elf2', isHead: false,
+          avatar: AVATAR },
+        { id: 'd', name: '可惜夜', tier: 'normal', needElf: 'elf1', isHead: false },
+      ],
+      // 车头 + 自购价:会产生负数结算方向(车头收钱)
+      head: [
+        { id: 'a', name: '菠菜', tier: 'normal', needElf: 'elf2', isHead: false },
+        { id: 'b', name: '星河', tier: 'normal', needElf: 'elf1', isHead: false },
+        { id: 'c', name: '鳕鱼条', tier: 'premium', needElf: 'elf2', isHead: true, headPrice: '100' },
+        { id: 'd', name: '可惜夜', tier: 'normal', needElf: 'elf1', isHead: false },
+      ],
+    }
+
+    const $data = document.getElementById('data')
+    const $info = document.getElementById('info')
+    const $c1 = document.getElementById('c1')
+    const $c2 = document.getElementById('c2')
+    const $c3 = document.getElementById('c3')
+
+    document.querySelectorAll('[data-preset]').forEach((btn) => {
+      btn.onclick = () => {
+        $data.value = JSON.stringify(PRESETS[btn.dataset.preset], null, 2)
+        gen()
+      }
+    })
+    document.getElementById('gen').onclick = gen
+
+    function svgToPng(svg, width, height, scale = 2) {
+      return new Promise((resolve, reject) => {
+        const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const img = new Image()
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas')
+            canvas.width = Math.round(width * scale)
+            canvas.height = Math.round(height * scale)
+            const ctx = canvas.getContext('2d')
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            ctx.scale(scale, scale)
+            ctx.drawImage(img, 0, 0, width, height)
+            resolve({ url: canvas.toDataURL('image/png'), nw: img.naturalWidth, nh: img.naturalHeight })
+          } catch (e) {
+            reject(e)
+          } finally {
+            URL.revokeObjectURL(url)
+          }
+        }
+        img.onerror = () => {
+          URL.revokeObjectURL(url)
+          reject(new Error('SVG 加载失败'))
+        }
+        img.src = url
+      })
+    }
+
+    async function gen() {
+      const log = []
+      const key = []
+      try {
+        const people = JSON.parse($data.value)
+        const r = generatePlan(people, { elf1: '新月鹭', elf2: '热团团' }, [], { maxGaps: 0 })
+        if (!r.success) throw new Error(r.error)
+        const b = buildPlanSvg(r)
+        log.push(`画布: ${b.width} × ${b.height}`)
+        log.push(`SVG 字符串长度: ${b.svg.length}`)
+
+        // ① 内联
+        $c1.innerHTML = b.svg
+        const svgEl = $c1.querySelector('svg')
+        svgEl.setAttribute('width', '100%')
+        svgEl.removeAttribute('height')
+        log.push(`① 内联 SVG: 已插入`)
+
+        // ② img
+        const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(b.svg)
+        await new Promise((res, rej) => {
+          $c2.onload = res
+          $c2.onerror = rej
+          $c2.src = dataUrl
+        })
+        log.push(`② img naturalWidth=${$c2.naturalWidth} naturalHeight=${$c2.naturalHeight}`)
+
+        // ③ canvas
+        const out = await svgToPng(b.svg, b.width, b.height, 2)
+        $c3.src = out.url
+        log.push(`③ canvas: 输入 ${b.width}×${b.height}, img natural 读到 ${out.nw}×${out.nh}, scale=2 → ${b.width * 2}×${b.height * 2}`)
+        if (out.nw !== b.width || out.nh !== b.height) {
+          key.push(`❌ 尺寸不一致!浏览器把 SVG 解析成 ${out.nw}×${out.nh},而 SVG 声明的是 ${b.width}×${b.height}`)
+          key.push(`   drawImage 会非等比拉伸 → 这就是错位的根源`)
+        } else {
+          key.push(`✅ 尺寸一致 (${b.width}×${b.height}),canvas 转换本身没问题`)
+          key.push(`   那问题就在 SVG 本身 —— 请看下面「① 内联 SVG」是否也横穿`)
+        }
+
+        // 连线和箭头的坐标
+        const lines = [...b.svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)" stroke="#AEAEB2"/g)]
+        log.push(`\n水平连线 ${lines.length} 条:`)
+        lines.forEach((m) => log.push(`  x ${m[1]} → ${m[3]}  (y=${m[2]})`))
+        const paths = [...b.svg.matchAll(/<path d="M ([\d.]+) ([\d.]+) L [\d.]+ [\d.]+ L ([\d.]+) [\d.]+ L [\d.]+ ([\d.]+)" fill="none"/g)]
+        log.push(`跨行折线 ${paths.length} 条`)
+      } catch (e) {
+        log.push('错误: ' + e.message)
+        $info.classList.add('error')
+      }
+      $info.classList.toggle('error', /错误|❌/.test([...key, ...log].join('\n')))
+      $info.textContent = [...key, '', '———— 详细 ————', ...log].join('\n')
+    }
+
+    // textarea 里已经写好了 4 人用例,直接跑;点预设按钮才会覆盖
+    gen()
+  </script>
+</body>
+</html>
