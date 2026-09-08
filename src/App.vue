@@ -137,11 +137,14 @@
               副券必须是**另一种精灵**；想要豪华的人只能收豪华副券，普通同理。
               档次在下方每个人表单里单独选择。
             </p>
+            <!-- 精灵名称:**只读**。它是影响全房间每个人的全局字段,在这里随手
+                 改会和房间同步打架(改一半的名字会被广播给所有人),也可能让人
+                 物列表里已选好的精灵对不上号。改名字请走下面的「精灵设置」。 -->
             <div class="elf-name-row">
               <div class="elf-name-field">
                 <label class="field-label">精灵1</label>
                 <div class="elf-input-wrap">
-                  <input v-model="elfName1" placeholder="新月鹭" class="input" />
+                  <span class="elf-name-static">{{ elfName1 || '新月鹭' }}</span>
                   <!-- 介绍图:缩略图 + 点开看大图(见 ElfFigure) -->
                   <ElfFigure :src="elfImg1" :name="elfName1 || '精灵1'" :on-open="openFigure" />
                 </div>
@@ -149,46 +152,59 @@
               <div class="elf-name-field">
                 <label class="field-label">精灵2</label>
                 <div class="elf-input-wrap">
-                  <input v-model="elfName2" placeholder="热团团" class="input" />
+                  <span class="elf-name-static">{{ elfName2 || '热团团' }}</span>
                   <ElfFigure :src="elfImg2" :name="elfName2 || '精灵2'" :on-open="openFigure" />
                 </div>
               </div>
             </div>
 
-            <!-- 介绍图设置:默认收起。换了当期精灵时才用得上,不该占着主界面。
-                 URL 以 http 开头才算合法(数据 URL 太长,不适合存进房间)。 -->
+            <!-- 精灵设置:名称与介绍图都在这里改,**点「确认」才生效**。
+                 编辑只动 elfDraft,确认时才落到 elfName / elfImg 并同步房间 ——
+                 否则输入到一半的值会被 15 秒一次的轮询广播给全群。
+                 默认收起:换了当期精灵才用得上,不该占着主界面。 -->
             <div class="elf-img-settings">
               <button
                 class="elf-img-toggle"
                 type="button"
-                :aria-expanded="showImgSettings"
-                @click="showImgSettings = !showImgSettings"
+                :aria-expanded="showElfSettings"
+                @click="toggleElfSettings"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                  <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                 </svg>
-                精灵介绍图
+                精灵设置
                 <svg
                   class="elf-img-caret"
-                  :class="{ open: showImgSettings }"
+                  :class="{ open: showElfSettings }"
                   width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                 >
                   <polyline points="6 9 12 15 18 9"/>
                 </svg>
               </button>
 
-              <div v-if="showImgSettings" class="elf-img-fields">
+              <div v-if="showElfSettings" class="elf-img-fields">
+                <div class="elf-img-field">
+                  <label class="field-label">精灵1名称</label>
+                  <input v-model="elfDraft.name1" class="input" placeholder="新月鹭" maxlength="16" />
+                </div>
                 <div class="elf-img-field">
                   <label class="field-label">精灵1图片链接</label>
-                  <input v-model="elfImg1" class="input" placeholder="https://…（留空则不显示）" inputmode="url" @blur="pushIfJoined" />
+                  <input v-model="elfDraft.img1" class="input" placeholder="https://…（留空则不显示）" inputmode="url" />
+                </div>
+                <div class="elf-img-field">
+                  <label class="field-label">精灵2名称</label>
+                  <input v-model="elfDraft.name2" class="input" placeholder="热团团" maxlength="16" />
                 </div>
                 <div class="elf-img-field">
                   <label class="field-label">精灵2图片链接</label>
-                  <input v-model="elfImg2" class="input" placeholder="https://…（留空则不显示）" inputmode="url" @blur="pushIfJoined" />
+                  <input v-model="elfDraft.img2" class="input" placeholder="https://…（留空则不显示）" inputmode="url" />
                 </div>
                 <div class="elf-img-actions">
-                  <span class="elf-img-note">支持外链；留空则隐藏缩略图</span>
-                  <button class="btn btn-secondary btn-sm" type="button" @click="resetElfImg">恢复默认</button>
+                  <button class="btn btn-ghost btn-sm" type="button" @click="resetElfImg">恢复默认图</button>
+                  <div class="elf-img-actions-right">
+                    <button class="btn btn-secondary btn-sm" type="button" @click="cancelElfSettings">取消</button>
+                    <button class="btn btn-primary btn-sm" type="button" @click="applyElfSettings">确认</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -447,6 +463,27 @@
                     >
                       <span class="toggle-knob"></span>
                     </button>
+                  </div>
+
+                  <!-- 自购价:车头不一定从官方渠道买(代充 / 活动价 / 手里有折扣),
+                       那就按他实际花的钱算,全场一起摊薄 —— 否则账上会多出一笔
+                       根本没花过的钱。只在选中车头后出现:普通人没有这个入口。
+                       留空 / 填 0 都按官方价 128 计。 -->
+                  <div v-if="person.isHead" class="person-field price-field">
+                    <label class="field-label">自购价格</label>
+                    <div class="head-price-wrap">
+                      <input
+                        v-model="person.headPrice"
+                        class="input head-price-input"
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="128"
+                        inputmode="decimal"
+                      />
+                      <span class="head-price-unit">元</span>
+                    </div>
+                    <p class="head-price-hint">非官方渠道购买时填实际花费；留空按官方价计</p>
                   </div>
 
                   <!-- 好友勾选:只列**前面已添加**的人。
@@ -937,7 +974,6 @@ const elfName2 = ref('热团团')
 // 介绍图 URL(可改,默认当期精灵)。留空则不显示缩略图。
 const elfImg1 = ref(DEFAULT_ELF_IMG[0])
 const elfImg2 = ref(DEFAULT_ELF_IMG[1])
-const showImgSettings = ref(false)
 
 // maxGaps 最多留几个空位(0~2)。默认 0:只给确定方案,不提示补人。
 // 使用者想要「再拉人能省多少」时再手动放开 —— 提示是可选信息,不该默认打扰。
@@ -978,11 +1014,52 @@ function openFigure(f) {
   figure.value = f
 }
 
-function resetElfImg() {
-  elfImg1.value = DEFAULT_ELF_IMG[0]
-  elfImg2.value = DEFAULT_ELF_IMG[1]
-  showImportToast('已恢复默认的精灵介绍图')
+// ===== 精灵设置（名称 + 介绍图）=====
+//
+// 这两个字段是**全局**的:改一个名字,房间里所有人的人物列表和结果卡都会变。
+// 直接 v-model 绑到真值上的话,输入到一半(比如"新月")就会被 15 秒一次的轮询
+// 广播出去,别人那边会闪现半个名字。所以走「草稿 + 确认」:编辑只动 elfDraft,
+// 点「确认」才一次性落到 elfName / elfImg 并推送。
+const showElfSettings = ref(false)
+const elfDraft = reactive({ name1: '', name2: '', img1: '', img2: '' })
+
+// toggleElfSettings 展开时把当前值抄进草稿,收起时直接丢弃草稿。
+function toggleElfSettings() {
+  if (showElfSettings.value) {
+    showElfSettings.value = false
+    return
+  }
+  elfDraft.name1 = elfName1.value
+  elfDraft.name2 = elfName2.value
+  elfDraft.img1 = elfImg1.value
+  elfDraft.img2 = elfImg2.value
+  showElfSettings.value = true
+}
+
+function cancelElfSettings() {
+  showElfSettings.value = false
+}
+
+function applyElfSettings() {
+  const n1 = String(elfDraft.name1 || '').trim().slice(0, 16)
+  const n2 = String(elfDraft.name2 || '').trim().slice(0, 16)
+  // 空名字视为「不改」:结果区会出现「获得「」」这种空壳文案
+  const renamed = (n1 && n1 !== elfName1.value) || (n2 && n2 !== elfName2.value)
+  if (n1) elfName1.value = n1
+  if (n2) elfName2.value = n2
+  elfImg1.value = String(elfDraft.img1 || '').trim()
+  elfImg2.value = String(elfDraft.img2 || '').trim()
+  showElfSettings.value = false
   pushIfJoined()
+  // 精灵名在生成时就固化进结果卡的字符串里了,改名后不重算的话右侧还显示旧名
+  if (renamed && planResult.value && planResult.value.success) doGenerate()
+}
+
+// resetElfImg 只填草稿,不直接改值 —— 与上面一致,确认后才生效。
+function resetElfImg() {
+  elfDraft.img1 = DEFAULT_ELF_IMG[0]
+  elfDraft.img2 = DEFAULT_ELF_IMG[1]
+  showImportToast('已填入默认的精灵介绍图，点「确认」生效')
 }
 
 // pushIfJoined 改完图片链接后同步给房间(没加房间时什么都不做)。
@@ -1020,6 +1097,8 @@ room.setRoomHooks({
       tier: p.tier || 'normal',
       needElf: p.needElf,
       isHead: !!p.isHead,
+      // 自购价:只在该成员是车头时才有意义,一并同步(别人看到的是同一个车头)
+      headPrice: normalizeHeadPrice(p.headPrice),
     })),
     friendships: buildFriendMatrix(),
   }),
@@ -1188,12 +1267,23 @@ function toggleFriendCell(idA, idB) {
 
 
 // ===== 人物管理 =====
+
+// normalizeHeadPrice 收敛车头自购价:合法则返回数字字符串,否则返回空串
+// (= 按官方价)。上限 10000 只为挡住手滑多敲几个 0,不是业务上限。
+function normalizeHeadPrice(v) {
+  if (v === '' || v == null) return ''
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0 || n > 10000) return ''
+  return String(Math.round(n * 100) / 100)
+}
+
 function addPerson() {
   // tier 是**每人独立**的档次(普通/豪华)。旧版是全局一个档次,但豪华版能送
   // 1 豪华 + 1 普通副券、普通版只能送 1 张普通 —— 这个差异直接决定树怎么长,
   // 所以必须落到每个人身上。
   // collapsed:点「确认」后折叠成摘要行(见 confirmPerson)。
-  people.push({ id: newId(), name: '', userId: '', avatar: '', needElf: 'elf1', tier: 'normal', isHead: false, collapsed: false })
+  // headPrice:车头自购通行证的实际花费(非官方渠道时填)。空 = 按官方价。
+  people.push({ id: newId(), name: '', userId: '', avatar: '', needElf: 'elf1', tier: 'normal', isHead: false, headPrice: '', collapsed: false })
 
   // 新卡片落在列表末尾(**不能**改成插到顶部):好友勾选只列「前面已添加的人」,
   // 插到顶部会让 index=0 的人一个好友都选不到。人多了末尾看不见,所以这里
@@ -1327,6 +1417,9 @@ function onHeadToggle(person) {
     // 车头必须豪华:直接切换而不是报错 —— 用户点开关的意图很明确,
     // 让他再手动去改档次是多余的摩擦。
     person.tier = 'premium'
+  } else {
+    // 不当车头了,自购价就失去意义;留着会在下次被设为车头时悄悄生效
+    person.headPrice = ''
   }
 }
 
@@ -1563,6 +1656,7 @@ function applyConfig(config, opts = {}) {
         // 兼容老配置(没有 tier 字段):按普通处理
         tier: p.tier === 'premium' ? 'premium' : 'normal',
         isHead: !!p.isHead,
+        headPrice: normalizeHeadPrice(p.headPrice),
         // 已填完的默认折叠(预置成员/房间同步回来的都是这种情况);
         // 房间同步时会被 applyRemote 的 prev 覆盖成本地真实状态。
         collapsed: !!name,
@@ -2230,8 +2324,53 @@ body {
   flex-wrap: wrap;
 }
 
-.elf-img-note {
+.elf-img-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* 精灵名在主界面是**只读**的:改名字要走「精灵设置」并确认,
+   所以这里做成只读文本的外观,而不是能点的输入框。 */
+.elf-name-static {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--fill);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== 车头自购价 ===== */
+.head-price-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.head-price-input {
+  padding-right: 30px;
+}
+
+.head-price-unit {
+  position: absolute;
+  right: 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.head-price-hint {
+  margin: 4px 0 0;
   font-size: 11.5px;
+  line-height: 1.45;
   color: var(--text-tertiary);
 }
 
