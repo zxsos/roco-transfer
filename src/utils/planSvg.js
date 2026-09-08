@@ -155,8 +155,20 @@ export function buildPlanSvg(plan) {
   }
   const roots = cards.filter((c) => c.parentId == null).map((c) => c.person.id)
   const maxDepth = Math.max(...cards.map((c) => c.depth || 0)) + 1
-  const leafCount = cards.filter((c) => !(childrenOf.get(c.person.id) || []).length).length
-  const horizontal = maxDepth > leafCount
+  // 只有**纯链**(每个节点最多一个子节点)才横着排。
+  //
+  // 之前用「层数 > 叶子数」判断,对「分叉但比较深」的树会误判成链 ——
+  // 比如 星河→{菠菜→可惜夜, 鳕鱼条} 层数3、叶子2,被判成链后排成一行:
+  //   星河 | 菠菜 | 鳕鱼条 | 可惜夜
+  // 于是「星河→鳕鱼条」要跨过菠菜、「菠菜→可惜夜」要跨过鳕鱼条,
+  // 连线直接从中间那张卡片上横穿过去。
+  // 有分叉就竖着画成树形,父子靠层间空隙连接,不会压到任何节点。
+  const maxChildren = Math.max(
+    0,
+    ...cards.map((c) => (childrenOf.get(c.person.id) || []).length),
+  )
+  const horizontal = maxChildren <= 1
+  void maxDepth
 
   const n = ordered.length
   let nodeW = MAX_W
