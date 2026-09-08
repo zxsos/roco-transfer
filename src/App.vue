@@ -609,8 +609,8 @@
                       <div class="stat-label">游戏总支付</div>
                     </div>
                     <div class="stat-item stat-highlight">
-                      <div class="stat-value">{{ planResult.resultCards[0].perPerson }}<span class="stat-unit">元</span></div>
-                      <div class="stat-label">每人均摊</div>
+                      <div class="stat-value">{{ planResult.savingPerPerson }}<span class="stat-unit">元</span></div>
+                      <div class="stat-label">人均可省</div>
                     </div>
                     <div class="stat-item stat-save">
                       <div class="stat-value">{{ planResult.savings }}<span class="stat-unit">元</span></div>
@@ -646,13 +646,13 @@
                   <div class="wx-divider-band"></div>
 
                   <!-- 支付统计 -->
-                  <div class="wx-collect-stats">{{ planResult.collectBill.items.length }}人待支付</div>
+                  <div class="wx-collect-stats">{{ planResult.collectBill.payItems.length }}人待支付<span v-if="planResult.collectBill.refundItems.length"> · {{ planResult.collectBill.refundItems.length }}人需退款</span></div>
                   <div class="wx-divider-thin"></div>
 
                   <!-- 成员列表 -->
                   <ul class="wx-collect-list">
                     <li
-                      v-for="it in planResult.collectBill.items"
+                      v-for="it in planResult.collectBill.payItems"
                       :key="'cb-' + it.person.id"
                       class="wx-collect-item"
                     >
@@ -665,6 +665,21 @@
                       </div>
                       <span class="wx-collect-member-name">{{ it.person.name }}</span>
                       <span class="wx-collect-item-amount">待支付 ¥{{ it.amount.toFixed(2) }}</span>
+                    </li>
+                    <li
+                      v-for="it in planResult.collectBill.refundItems"
+                      :key="'rb-' + it.person.id"
+                      class="wx-collect-item"
+                    >
+                      <div
+                        class="wx-collect-avatar"
+                        :class="{ 'has-image': it.person.avatar }"
+                        :style="it.person.avatar ? { backgroundImage: `url(${it.person.avatar})` } : null"
+                      >
+                        <span v-if="!it.person.avatar">{{ initialOf(it.person.name) || '?' }}</span>
+                      </div>
+                      <span class="wx-collect-member-name">{{ it.person.name }}</span>
+                      <span class="wx-collect-item-amount wx-collect-item-refund">需退款 ¥{{ it.amount.toFixed(2) }}</span>
                     </li>
                   </ul>
                 </section>
@@ -697,10 +712,10 @@
                       <b>{{ planResult.gapSuggestion.count }}</b>
                       个要「{{ planResult.gapSuggestion.elfName }}」的
                       {{ planResult.gapSuggestion.tier === 'premium' ? '豪华版' : '普通版' }}
-                      → 人均
-                      <b>{{ planResult.gapSuggestion.avgNow }}</b> 降到
-                      <b>{{ planResult.gapSuggestion.avgAfter }}</b> 元
-                      （每人省 {{ planResult.gapSuggestion.savePerPerson }} 元）
+                      → 人均可省
+                      <b>{{ planResult.gapSuggestion.savingNow }}</b> 涨到
+                      <b>{{ planResult.gapSuggestion.savingAfter }}</b> 元
+                      （每人多省 {{ planResult.gapSuggestion.savePerPerson }} 元）
                     </span>
                   </div>
 
@@ -808,15 +823,18 @@
                       class="line-item"
                       :class="item.type"
                     >
-                      <span class="line-amount" :class="item.type === 'expense' ? 'expense' : 'info'">
-                        {{ item.type === 'expense' ? `-${item.amount}` : '副券' }}
+                      <span class="line-amount" :class="amountClassOf(item.type)">
+                        {{ amountTextOf(item) }}
                       </span>
                       <span class="line-label">{{ item.label }}</span>
                     </li>
                   </ul>
 
                   <div class="net-summary">
-                    <span class="net-summary-label">净支出</span>
+                    <span class="net-summary-label">
+                      净支出
+                      <span class="net-summary-sub">实付 {{ card.paid }} 元 · 省 {{ card.saving }} 元</span>
+                    </span>
                     <span class="net-summary-value">{{ card.netExpense }} 元</span>
                   </div>
 
@@ -1351,6 +1369,29 @@ function buildFriendMatrix() {
 function initialOf(name) {
   const s = (name || '').trim()
   return s ? Array.from(s)[0] : ''
+}
+
+// 明细行的金额列:支出红字带负号、收入绿字带正号、副券类只给蓝色标签。
+// 这里与 calculator.js 的 item.type 一一对应,新增类型时两边一起改。
+function amountClassOf(type) {
+  if (type === 'expense' || type === 'transfer-out') return 'expense'
+  if (type === 'transfer-in') return 'in'
+  return 'info'
+}
+
+function amountTextOf(item) {
+  switch (item.type) {
+    case 'expense':
+      return `-${item.amount}`
+    case 'transfer-out':
+      return `-${item.amount}`
+    case 'transfer-in':
+      return `+${item.amount}`
+    case 'gift':
+      return '送出'
+    default:
+      return '副券'
+  }
 }
 
 // scrollTop 移动端底部操作条的「回到顶部」。
@@ -3566,6 +3607,10 @@ body {
   flex-shrink: 0;
 }
 
+.wx-collect-item-refund {
+  color: var(--green);
+}
+
 /* ===== RESULT CARD ===== */
 .result-card {
   overflow: hidden;
@@ -3730,6 +3775,15 @@ body {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+.net-summary-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0;
 }
 
 .net-summary-value {
