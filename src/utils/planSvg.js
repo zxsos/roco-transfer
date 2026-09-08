@@ -44,6 +44,17 @@ const tierText = (t) => (t === 'premium' ? '豪华' : '普通')
 const roleColor = (c) =>
   c.role === '源头' ? C.root : (c.children || []).length ? C.mid : C.leaf
 
+// arrowHead 手动画箭头三角形。
+//
+// 不用 SVG <marker>:marker 的尺寸受 markerUnits 影响(默认会乘以线宽),
+// 各浏览器/渲染器对超长箭头的处理还不一致,容易出现箭头比连线还长、
+// 糊到卡片上的情况。手算三个顶点就完全可控,没有兼容差异。
+function arrowHead(x, y, dir, s = 4.5, l = 7) {
+  if (dir === 'right') return `M ${x - l} ${y - s} L ${x} ${y} L ${x - l} ${y + s} Z`
+  if (dir === 'left') return `M ${x + l} ${y - s} L ${x} ${y} L ${x + l} ${y + s} Z`
+  return `M ${x - s} ${y - l} L ${x} ${y} L ${x + s} ${y - l} Z` // down
+}
+
 function drawAvatar(out, defs, person, cx, cy, r, color, key) {
   const av = person && person.avatar
   if (av && av.startsWith('data:image/')) {
@@ -334,12 +345,12 @@ export function buildPlanSvg(plan) {
     if (from.y === to.y) {
       const yy = from.y + NODE_H / 2
       // 蛇形排列后,子节点既可能在父节点右边也可能在左边,按 x 大小决定箭头朝向
-      const [x1, x2] = to.x > from.x
+      const right = to.x > from.x
+      const [x1, x2] = right
         ? [from.x + nodeW + 5, to.x - 9]
         : [from.x - 5, to.x + nodeW + 9]
-      out.push(
-        `<line x1="${x1}" y1="${yy}" x2="${x2}" y2="${yy}" stroke="${C.arrow}" stroke-width="2" marker-end="url(#arw)"/>`,
-      )
+      out.push(`<line x1="${x1}" y1="${yy}" x2="${x2}" y2="${yy}" stroke="${C.arrow}" stroke-width="2"/>`)
+      out.push(`<path d="${arrowHead(x2, yy, right ? 'right' : 'left')}" fill="${C.arrow}"/>`)
     } else {
       const x1 = from.x + nodeW / 2
       const y1 = from.y + NODE_H
@@ -347,8 +358,9 @@ export function buildPlanSvg(plan) {
       const y2 = to.y
       const mid = y1 + Math.max(12, (y2 - y1) / 2)
       out.push(
-        `<path d="M ${x1} ${y1 + 4} L ${x1} ${mid} L ${x2} ${mid} L ${x2} ${y2 - 9}" fill="none" stroke="${C.arrow}" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arw)"/>`,
+        `<path d="M ${x1} ${y1 + 4} L ${x1} ${mid} L ${x2} ${mid} L ${x2} ${y2 - 9}" fill="none" stroke="${C.arrow}" stroke-width="2" stroke-dasharray="5 4"/>`,
       )
+      out.push(`<path d="${arrowHead(x2, y2 - 2, 'down')}" fill="${C.arrow}"/>`)
     }
   }
 
@@ -419,12 +431,9 @@ export function buildPlanSvg(plan) {
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" ` +
     `font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',sans-serif">` +
+    // defs 里只放头像的 clipPath:箭头改为手画三角形(见 arrowHead),
+    // 不再用 <marker>,避免各渲染器对 markerUnits 的处理差异
     `<defs>` +
-    // markerUnits 默认是 strokeWidth —— markerWidth 会**乘以线宽**。
-    // 线宽 2 时 markerWidth=7 实际渲染成 14px,比节点间隙还长,箭头就糊到卡片上了。
-    // 显式设为 userSpaceOnUse,箭头尺寸固定为 9px,不随线宽缩放。
-    `<marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">` +
-    `<path d="M0,0 L10,5 L0,10 z" fill="${C.arrow}"/></marker>` +
     defs.join('') +
     `</defs>` +
     `<rect x="0" y="0" width="${W}" height="${H}" rx="18" fill="${C.bg}"/>` +
