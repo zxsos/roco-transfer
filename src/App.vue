@@ -613,8 +613,19 @@
           <TransitionGroup name="fade" tag="div" class="result-section">
             <template v-if="planResult && planResult.success">
 
-              <!-- 导出按钮 -->
+              <!-- 导出:文字版直接粘贴到群里(微信里最快),图片走长按保存 -->
               <div key="export-bar" class="export-bar">
+                <button
+                  class="btn btn-secondary export-btn"
+                  :disabled="!planResult || !planResult.success"
+                  @click="copyPlanText"
+                  title="复制成文字，直接粘贴到群里"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                  复制文字版
+                </button>
                 <button class="btn btn-primary export-btn" :disabled="exporting" @click="exportAllCards">
                   <span v-if="exporting" class="spinner"></span>
                   {{ exporting ? '正在生成...' : '导出图片' }}
@@ -916,6 +927,8 @@
 
   <!-- 精灵介绍图的大图预览:挂在根层,不受卡片 overflow 裁剪 -->
   <FigureViewer :fig="figure" @close="figure = null" />
+  <!-- 导出图预览:微信里没有 a[download],只能靠长按保存 -->
+  <ExportPreview :src="exportPreview" :filename="exportFilename" @close="exportPreview = ''" />
 </template>
 
 <script setup>
@@ -926,6 +939,7 @@ import * as room from './room.js'
 import ElfFigure from './components/ElfFigure.vue'
 import FigureViewer from './components/FigureViewer.vue'
 import TransferTree from './components/TransferTree.vue'
+import ExportPreview from './components/ExportPreview.vue'
 
 // 两个精灵的介绍图。
 //
@@ -1671,18 +1685,48 @@ function showImportToast(msg) {
   }, 2800)
 }
 
-// ===== 导出图片 =====
+// ===== 导出 =====
+
+// isWeixin 微信内置浏览器:基本不认 a[download](iOS 的 WKWebView 尤其如此),
+// 点了没反应。微信里改为把图显示出来让用户长按保存 —— 生成海报类 H5 的通用做法。
+const isWeixin = computed(() =>
+  typeof navigator !== 'undefined' && /MicroMessenger/i.test(navigator.userAgent || ''),
+)
+const exportPreview = ref('')
+const exportFilename = ref('传火方案.png')
+
 async function exportAllCards() {
   if (!exportContainer.value || exporting.value) return
   exporting.value = true
+  const el = exportContainer.value
+
+  // html2canvas 只渲染滚动容器的**可视区域**:树状图横向滚动时,右边滚出去的
+  // 节点根本不进画布 —— 导出的图右边会被齐刷刷截掉。
+  // 所以导出前把滚动容器撑到完整内容宽度,并按这个宽度出图,导出后还原。
+  const scrollers = [...el.querySelectorAll('.tree-scroll')]
+  const full = scrollers.map((s) => s.scrollWidth)
+  const need = Math.max(el.offsetWidth, ...full, 0)
+
+  const saved = []
+  const patch = (node, prop, val) => {
+    saved.push([node, prop, node.style[prop]])
+    node.style[prop] = val
+  }
+  patch(el, 'width', need + 'px')
+  scrollers.forEach((s, i) => {
+    patch(s, 'overflowX', 'visible')
+    patch(s, 'width', full[i] + 'px')
+  })
+
   try {
     await nextTick()
-    const el = exportContainer.value
     const canvas = await html2canvas(el, {
-      scale: 2,
+      // 微信里图太大(dataURL 十几 MB)长按保存会白屏或失败,降一档
+      scale: isWeixin.value ? 1.5 : 2,
       backgroundColor: null,
       useCORS: true,
       logging: false,
+      width: need,
       onclone: (doc) => {
         const cloned = doc.querySelector('.export-container')
         if (cloned) {
@@ -1691,20 +1735,143 @@ async function exportAllCards() {
             ? 'linear-gradient(180deg, #1C1C1E 0%, #000000 100%)'
             : 'linear-gradient(180deg, #F2F2F7 0%, #E5E5EA 100%)'
           cloned.style.borderRadius = '0'
-          cloned.style.width = el.offsetWidth + 'px'
+          // 必须用内容宽度:写 el.offsetWidth 的话横向的树会被裁掉右边
+          cloned.style.width = need + 'px'
         }
+        // 克隆体里同样展开(改克隆体不影响页面上的真实节点)
+        const cs = doc.querySelectorAll('.tree-scroll')
+        cs.forEach((c, i) => {
+          c.style.overflowX = 'visible'
+          c.style.width = full[i] + 'px'
+        })
       },
     })
-    const link = document.createElement('a')
-    const names = planResult.value.chain.map((p) => p.name).join('-')
-    link.download = `传火方案_${names}.png`
-    link.href = canvas.toDataURL('image/png')
-    link.click()
+
+    const dataUrl = canvas.toDataURL('image/png')
+    const names = (planResult.value.chain || [])
+      .map((p) => p.name)
+      .filter(Boolean)
+      .join('-')
+    const filename = `传火方案_${names || '拼团'}.png`
+
+    if (isWeixin.value) {
+      exportPreview.value = dataUrl
+      exportFilename.value = filename
+    } else {
+      const link = document.createElement('a')
+      link.download = filename
+      link.href = dataUrl
+      link.click()
+    }
   } catch (e) {
     console.error('导出失败:', e)
     errorMsg.value = '导出图片失败，请重试'
   } finally {
+    // 倒序还原
+    for (let i = saved.length - 1; i >= 0; i--) {
+      const [node, prop, val] = saved[i]
+      node.style[prop] = val
+    }
     exporting.value = false
+  }
+}
+
+// buildPlanText 生成可直接粘贴到群里的文字版方案。
+//
+// 图片在微信里要「保存 → 打开相册 → 发群」绕一大圈,而拼团最终要的就是把账
+// 说清楚 —— 文字能直接粘贴、可编辑、可 @ 人,实际上比图片更好用。
+function buildPlanText() {
+  const r = planResult.value
+  if (!r || !r.success || !r.cards) return ''
+
+  const tierOf = (c) => (c.tier === 'premium' ? '豪华' : '普通')
+  const lines = []
+
+  // 按树的层序输出:源头在最前,顺着赠送关系往下读。
+  // cards 是 people 的原顺序,源头不一定排第一,直接遍历会读起来是乱的。
+  const ordered = [...r.cards].sort(
+    (a, b) => a.depth - b.depth || String(a.person.name).localeCompare(String(b.person.name), 'zh'),
+  )
+
+  lines.push(`【洛克王国通行证拼团】共 ${r.cards.length} 人`)
+  // 车头自购渠道省的钱是**他个人的**,不在「人均可省」里 —— 不说明的话
+  // 「共省 112」和「人均可省 21 × 4 人 = 84」对不上,会被当成算错。
+  const channel = Math.round((r.savings - r.savingPerPerson * r.cards.length) * 100) / 100
+  lines.push(
+    `总支付 ${r.total} 元 · 人均可省 ${r.savingPerPerson} 元 · 共省 ${r.savings} 元` +
+      (channel > 0.005 ? `（含车头自购渠道省 ${channel} 元）` : ''),
+  )
+  if (r.noGift) lines.push('（当前配置无法赠送，所有人自购）')
+
+  // 赠送关系:树可能有分叉,逐条列出比画一条「链」准确
+  const byId = new Map(r.cards.map((c) => [c.person.id, c]))
+  const gifts = ordered
+    .filter((c) => c.parentId != null)
+    .map((c) => {
+      const from = byId.get(c.parentId)
+      return `  ${from ? from.person.name : '?'} → ${c.person.name}（${c.myElfName}）`
+    })
+  if (gifts.length) {
+    lines.push('')
+    lines.push('赠送关系：')
+    lines.push(...gifts)
+  }
+
+  lines.push('')
+  lines.push('每人结算：')
+  for (const c of ordered) {
+    const paidText = c.role === '源头'
+      ? `自购 ${c.paid} 元`
+      : `副券 ${c.paid} 元`
+    const settle = c.transfers && c.transfers[0]
+    const settleText = settle
+      ? settle.direction === 'out'
+        ? ` + 转出 ${settle.amount} 元`
+        : ` − 收 ${settle.amount} 元`
+      : ''
+    lines.push(
+      `  ${c.person.name}（${tierOf(c)}·${c.myElfName}）：${paidText}${settleText} → 净支出 ${c.netExpense} 元（省 ${c.saving} 元）`,
+    )
+  }
+
+  const cb = r.collectBill
+  if (cb && cb.head) {
+    lines.push('')
+    if (cb.payItems && cb.payItems.length) {
+      lines.push(`转账：${cb.head.name} 收款 ${cb.receive} 元`)
+      for (const it of cb.payItems) lines.push(`  ${it.person.name} ${it.amount} 元`)
+    }
+    if (cb.refundItems && cb.refundItems.length) {
+      lines.push(`${cb.head.name} 需退 ${cb.refund} 元`)
+      for (const it of cb.refundItems) lines.push(`  ${it.person.name} ${it.amount} 元`)
+    }
+  }
+
+  if (r.friendWarnings && r.friendWarnings.length) {
+    lines.push('')
+    lines.push('需先加好友：' + r.friendWarnings.map((w) => `${w.from} ↔ ${w.to}`).join('、'))
+  }
+
+  return lines.join('\n')
+}
+
+async function copyPlanText() {
+  const text = buildPlanText()
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    showImportToast('方案已复制，粘贴到群里即可')
+  } catch {
+    // 微信/老浏览器可能没有 clipboard API,退回 execCommand
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.top = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    showImportToast(ok ? '方案已复制，粘贴到群里即可' : '复制失败，请手动选择文字')
   }
 }
 </script>
@@ -3515,10 +3682,15 @@ body {
 
 .export-bar {
   margin-bottom: 16px;
+  /* 两个按钮(复制文字版 / 导出图片)并排;原先 .export-btn 是 width:100%,
+     放两个会上下堆叠占掉两倍高度 */
+  display: flex;
+  gap: 10px;
 }
 
 .export-btn {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   justify-content: center;
 }
 
