@@ -68,6 +68,11 @@ function sanitizePerson(p) {
   }
   const tier = p.tier === 'premium' ? 'premium' : 'normal'
   const needElf = ['elf1', 'elf2', 'any'].includes(p.needElf) ? p.needElf : 'elf1'
+  // 车头自购价:非官方渠道购买时的实际花费。空 / 非法一律存 null(= 按官方价),
+  // 上限只是挡手滑多敲的 0,不是业务约束。
+  let headPrice = null
+  const hp = Number(p.headPrice)
+  if (Number.isFinite(hp) && hp > 0 && hp <= 10000) headPrice = Math.round(hp * 100) / 100
   return {
     id,
     name,
@@ -76,6 +81,7 @@ function sanitizePerson(p) {
     tier,
     needElf,
     isHead: !!p.isHead,
+    headPrice,
   }
 }
 

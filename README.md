@@ -25,6 +25,7 @@
 - 👥 **车头 / 车尾指定**：支持手动锁定链条的起点和终点。
 - 🤝 **好友关系优先**：录入好友关系后，链条会优先把好友排在相邻位置（副券需互为好友才能赠送），并对非好友相邻段给出提示。
 - 💰 **费用自动结算**：根据档次（普通 68 元 / 高级 128 元）自动计算总价、人均可省金额，以及每人的实付 / 应摊 / 转账指令（向谁转多少、原因）。
+- 🚗 **车头自购价**：车头若从非官方渠道购买通行证，可填实际花费——只在选中车头后出现，留空按官方价计，省下的钱由全团一起摊薄。
 - 📊 **方案卡片可视化**：每位成员一张卡片，包含角色（源头 / 中间人 / 车尾）、所购通行证、应收应付明细、好友状态。
 - 🖼️ **一键导出图片**：基于 html2canvas 将完整方案导出为 PNG 图片，方便群内分享。
 - 🪪 **可选头像与 ID**：每位成员可粘贴（Ctrl+V）/ 上传图片设置头像，自动等比压缩至 128 × 128；可填入自定义 ID / 备注，会在链条与卡片上一并显示。
@@ -128,7 +129,7 @@ npx wrangler kv namespace create ROOMS
   "elfName1": "迪莫",
   "elfName2": "亚比",
   "people": [
-    { "id": 1, "name": "张三", "userId": "QQ123",  "avatar": "data:image/jpeg;base64,...", "needElf": "elf1", "isHead": true,  "isTail": false },
+    { "id": 1, "name": "张三", "userId": "QQ123",  "avatar": "data:image/jpeg;base64,...", "needElf": "elf1", "isHead": true,  "headPrice": null },
     { "id": 2, "name": "李四", "userId": "",       "avatar": "",                          "needElf": "elf2", "isHead": false, "isTail": false },
     { "id": 3, "name": "王五", "userId": "wuwang", "avatar": "",                          "needElf": "any",  "isHead": false, "isTail": true  }
   ],
@@ -137,6 +138,7 @@ npx wrangler kv namespace create ROOMS
 ```
 
 - `tier`：档次，可选 `normal` / `premium`
+- `headPrice`：车头自购通行证的实际花费（数字）；`null` 或留空表示按官方价计。仅对 `isHead: true` 的成员生效
 - `needElf`：精灵需求，可选 `elf1` / `elf2` / `any`
 - `userId`：可选字段，自定义的 ID 或备注（如游戏 ID、QQ 号）
 - `avatar`：可选字段，`data:image/...` 形式的图片 data URL；导入时仅接受合法图片 data URL，其他值会被清空

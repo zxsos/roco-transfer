@@ -242,6 +242,15 @@ function greedyMatch(slots, sorted, friendMap, elfUnder) {
   return out
 }
 
+// actualPassPrice 车头自购通行证实际花的钱。
+//
+// 车头不一定从官方渠道买(代充、活动价、手上有折扣等),所以允许填一个自购价;
+// 没填或填了非法值一律退回官方价 —— 宁可少算,也不能因为脏数据算出负成本。
+function actualPassPrice(p, price) {
+  const v = Number(p.headPrice)
+  return Number.isFinite(v) && v > 0 ? v : price.pass
+}
+
 // computeCost 根自购通行证、其余人付副券。
 function computeCost(people, built) {
   let total = 0
@@ -249,7 +258,9 @@ function computeCost(people, built) {
   for (const p of people) {
     const isRoot = built.depthOf.get(p.id) === 0
     const price = PRICE[p.tier] || PRICE.normal
-    const amt = isRoot ? price.pass : price.coupon
+    // 自购价只对「车头本人且是自购源头」生效:普通源头没有这个入口,
+    // 非车头的人即使带着脏数据也不该享受。
+    const amt = isRoot ? (p.isHead ? actualPassPrice(p, price) : price.pass) : price.coupon
     payOf.set(p.id, amt)
     total += amt
   }
@@ -412,7 +423,13 @@ function buildResultCards(people, best, byId, friendMap) {
     // 「128 + 40 = 168」而净支出却写 62 这种自相矛盾的账。
     const items = []
     if (isRoot) {
-      items.push({ label: `自购「${elfNames[myElf]}」通行证`, amount: price.pass, type: 'expense' })
+      // amount 用 paid 而不是定价:车头可能按自购价买,写定价会和实付对不上
+      const custom = paid !== price.pass
+      items.push({
+        label: `自购「${elfNames[myElf]}」通行证${custom ? '（自购价）' : ''}`,
+        amount: paid,
+        type: 'expense',
+      })
     } else {
       const giver = byId.get(parent)
       items.push({
