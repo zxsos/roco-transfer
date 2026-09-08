@@ -178,7 +178,15 @@ export function buildPlanSvg(plan) {
       perRow = Math.max(1, Math.floor((INNER + GAP_X) / (MIN_W + GAP_X)))
       nodeW = Math.min(MAX_W, fit(perRow))
     }
-    for (let i = 0; i < n; i += perRow) rows.push(ordered.slice(i, i + perRow))
+    // 蛇形排列:奇数行反向。
+    // 否则第 1 行末尾(最右)要连到第 2 行开头(最左),连线得横跨整个画布,
+    // 从别的节点底下穿过去。反向后行末与下行开头在同一侧,连线只需向下。
+    let ri = 0
+    for (let i = 0; i < n; i += perRow) {
+      const row = ordered.slice(i, i + perRow)
+      rows.push(ri % 2 === 1 ? [...row].reverse() : row)
+      ri++
+    }
   } else {
     // 纵向:从 MAX_W 往下找第一个能放进画布的宽度
     let found = null
@@ -321,10 +329,14 @@ export function buildPlanSvg(plan) {
     const from = posOf(parent)
     const to = posOf(c)
     if (!from || !to) continue
-    if (from.y === to.y && to.x > from.x) {
+    if (from.y === to.y) {
       const yy = from.y + NODE_H / 2
+      // 蛇形排列后,子节点既可能在父节点右边也可能在左边,按 x 大小决定箭头朝向
+      const [x1, x2] = to.x > from.x
+        ? [from.x + nodeW + 5, to.x - 9]
+        : [from.x - 5, to.x + nodeW + 9]
       out.push(
-        `<line x1="${from.x + nodeW + 5}" y1="${yy}" x2="${to.x - 9}" y2="${yy}" stroke="${C.arrow}" stroke-width="2" marker-end="url(#arw)"/>`,
+        `<line x1="${x1}" y1="${yy}" x2="${x2}" y2="${yy}" stroke="${C.arrow}" stroke-width="2" marker-end="url(#arw)"/>`,
       )
     } else {
       const x1 = from.x + nodeW / 2
