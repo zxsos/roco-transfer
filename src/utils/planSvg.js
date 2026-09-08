@@ -241,10 +241,11 @@ export function buildPlanSvg(plan) {
     const left = p.x + 13
     const right = p.x + nodeW - 13
 
+    // 角色只用**边框颜色**表达。左侧不再额外画竖条:边框已经是角色色,
+    // 再叠一条 4.5px 的色块既重复,在圆角边上又显得很粗。
     out.push(
-      `<rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${NODE_H}" rx="14" fill="${C.card}" stroke="${role}" stroke-width="1.4"/>`,
+      `<rect x="${p.x}" y="${p.y}" width="${nodeW}" height="${NODE_H}" rx="14" fill="${C.card}" stroke="${role}" stroke-width="1.6"/>`,
     )
-    out.push(`<rect x="${p.x}" y="${p.y}" width="4.5" height="${NODE_H}" rx="2" fill="${role}"/>`)
 
     // 头部:头像居中在上、名字与精灵居中其下 —— 与页面预览的节点形状一致
     const cx = p.x + nodeW / 2
