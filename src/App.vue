@@ -934,7 +934,7 @@
 <script setup>
 import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { generatePlan, PRICE } from './utils/calculator.js'
-import html2canvas from 'html2canvas'
+import { buildPlanSvg } from './utils/planSvg.js'
 import * as room from './room.js'
 import ElfFigure from './components/ElfFigure.vue'
 import FigureViewer from './components/FigureViewer.vue'
@@ -1695,59 +1695,46 @@ const isWeixin = computed(() =>
 const exportPreview = ref('')
 const exportFilename = ref('传火方案.png')
 
-async function exportAllCards() {
-  if (!exportContainer.value || exporting.value) return
-  exporting.value = true
-  const el = exportContainer.value
-
-  // html2canvas 只渲染滚动容器的**可视区域**:树状图横向滚动时,右边滚出去的
-  // 节点根本不进画布 —— 导出的图右边会被齐刷刷截掉。
-  // 所以导出前把滚动容器撑到完整内容宽度,并按这个宽度出图,导出后还原。
-  const scrollers = [...el.querySelectorAll('.tree-scroll')]
-  const full = scrollers.map((s) => s.scrollWidth)
-  const need = Math.max(el.offsetWidth, ...full, 0)
-
-  const saved = []
-  const patch = (node, prop, val) => {
-    saved.push([node, prop, node.style[prop]])
-    node.style[prop] = val
-  }
-  patch(el, 'width', need + 'px')
-  scrollers.forEach((s, i) => {
-    patch(s, 'overflowX', 'visible')
-    patch(s, 'width', full[i] + 'px')
+// svgToPng 把 SVG 转成位图。
+// 微信长按保存只认 PNG/JPEG,不认 .svg;而矢量图放大不糊,所以走
+// 「SVG → Image → canvas → PNG」这条路,两头的优点都要。
+function svgToPng(svg, width, height, scale = 2) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(width * scale)
+        canvas.height = Math.round(height * scale)
+        const ctx = canvas.getContext('2d')
+        ctx.scale(scale, scale)
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/png'))
+      } catch (e) {
+        reject(e)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('SVG 渲染失败'))
+    }
+    img.src = url
   })
+}
 
+async function exportAllCards() {
+  if (!planResult.value || !planResult.value.success || exporting.value) return
+  exporting.value = true
   try {
     await nextTick()
-    const canvas = await html2canvas(el, {
-      // 微信里图太大(dataURL 十几 MB)长按保存会白屏或失败,降一档
-      scale: isWeixin.value ? 1.5 : 2,
-      backgroundColor: null,
-      useCORS: true,
-      logging: false,
-      width: need,
-      onclone: (doc) => {
-        const cloned = doc.querySelector('.export-container')
-        if (cloned) {
-          cloned.style.padding = '24px 20px'
-          cloned.style.background = resolvedTheme.value === 'dark'
-            ? 'linear-gradient(180deg, #1C1C1E 0%, #000000 100%)'
-            : 'linear-gradient(180deg, #F2F2F7 0%, #E5E5EA 100%)'
-          cloned.style.borderRadius = '0'
-          // 必须用内容宽度:写 el.offsetWidth 的话横向的树会被裁掉右边
-          cloned.style.width = need + 'px'
-        }
-        // 克隆体里同样展开(改克隆体不影响页面上的真实节点)
-        const cs = doc.querySelectorAll('.tree-scroll')
-        cs.forEach((c, i) => {
-          c.style.overflowX = 'visible'
-          c.style.width = full[i] + 'px'
-        })
-      },
-    })
+    const built = buildPlanSvg(planResult.value)
+    if (!built) throw new Error('方案为空')
 
-    const dataUrl = canvas.toDataURL('image/png')
+    const dataUrl = await svgToPng(built.svg, built.width, built.height, 2)
     const names = (planResult.value.chain || [])
       .map((p) => p.name)
       .filter(Boolean)
@@ -1767,11 +1754,6 @@ async function exportAllCards() {
     console.error('导出失败:', e)
     errorMsg.value = '导出图片失败，请重试'
   } finally {
-    // 倒序还原
-    for (let i = saved.length - 1; i >= 0; i--) {
-      const [node, prop, val] = saved[i]
-      node.style[prop] = val
-    }
     exporting.value = false
   }
 }
