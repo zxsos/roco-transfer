@@ -113,7 +113,7 @@ npx wrangler pages deploy dist --project-name rocom-pass-the-torch
 npx wrangler kv namespace create ROOMS
 ```
 
-> 已从 GitHub Pages 迁移过来，旧的 `zxsos.github.io/roco-transfer/` 不再更新。
+> 本项目只发布到 Cloudflare Pages，正式地址只有一个：<https://rocom-pass-the-torch.pages.dev/>。
 
 ## 项目结构
 
